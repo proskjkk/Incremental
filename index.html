@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="The World Incremental — generate Power, purchase upgrades, and expand beyond Earth."
+    />
+    <title>The World Incremental</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="background-grid" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">PRE-ALPHA</p>
+        <h1>The World Incremental</h1>
+      </div>
+
+      <div class="topbar-actions">
+        <span id="save-status" class="save-status" aria-live="polite">Saved</span>
+        <button id="reset-save-button" class="button button-danger" type="button">
+          Reset Save
+        </button>
+      </div>
+    </header>
+
+    <main class="game-shell">
+      <nav class="layer-tabs" aria-label="Game layers">
+        <button class="layer-tab active" type="button" aria-current="page">
+          Overworld
+        </button>
+        <button class="layer-tab locked" type="button" disabled>
+          Space <span>Locked</span>
+        </button>
+      </nav>
+
+      <section class="resource-panel" aria-labelledby="power-heading">
+        <p class="section-label">MAIN CURRENCY</p>
+        <h2 id="power-heading">Power</h2>
+        <p id="power-amount" class="resource-value">0</p>
+        <p id="power-rate" class="resource-rate">+1 Power/s</p>
+      </section>
+
+      <section class="content-grid">
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <p class="section-label">REPEATABLE UPGRADE</p>
+              <h2>Power Generator</h2>
+            </div>
+            <span id="generator-level" class="level-badge">Level 0</span>
+          </div>
+
+          <p class="card-description">
+            Each level adds <strong>+1 Power per second</strong>.
+          </p>
+
+          <div class="stats-row">
+            <div>
+              <span>Current output</span>
+              <strong id="generator-output">+0 Power/s</strong>
+            </div>
+            <div>
+              <span>Next cost</span>
+              <strong id="generator-cost">10 Power</strong>
+            </div>
+          </div>
+
+          <div class="purchase-controls" aria-label="Generator purchase amount">
+            <button class="purchase-mode active" type="button" data-buy-mode="1">
+              Buy 1
+            </button>
+            <button class="purchase-mode" type="button" data-buy-mode="10">
+              Buy 10
+            </button>
+            <button class="purchase-mode" type="button" data-buy-mode="max">
+              Buy Max
+            </button>
+          </div>
+
+          <button id="buy-generator-button" class="button button-primary buy-button" type="button">
+            Buy Power Generator
+          </button>
+
+          <p id="purchase-preview" class="purchase-preview">
+            Purchase 1 level for 10 Power.
+          </p>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <p class="section-label">STATISTICS</p>
+              <h2>Overworld Progress</h2>
+            </div>
+          </div>
+
+          <dl class="statistics-list">
+            <div>
+              <dt>Total Power earned</dt>
+              <dd id="total-power-earned">0</dd>
+            </div>
+            <div>
+              <dt>Generator levels bought</dt>
+              <dd id="total-generators-bought">0</dd>
+            </div>
+            <div>
+              <dt>Current session</dt>
+              <dd id="session-time">0s</dd>
+            </div>
+            <div>
+              <dt>Offline gain limit</dt>
+              <dd>28 days</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+    </main>
+
+    <dialog id="offline-dialog" class="game-dialog">
+      <div class="dialog-content">
+        <p class="section-label">WELCOME BACK</p>
+        <h2>Offline progress</h2>
+        <p id="offline-message">You generated Power while away.</p>
+        <button id="close-offline-dialog" class="button button-primary" type="button">
+          Continue
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="reset-dialog" class="game-dialog">
+      <div class="dialog-content">
+        <p class="section-label">CONFIRM RESET</p>
+        <h2>Delete all progress?</h2>
+        <p>This permanently removes your local save data.</p>
+        <div class="dialog-actions">
+          <button id="cancel-reset-button" class="button button-secondary" type="button">
+            Cancel
+          </button>
+          <button id="confirm-reset-button" class="button button-danger" type="button">
+            Delete Save
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <noscript>
+      <div class="noscript-message">
+        JavaScript is required to play The World Incremental.
+      </div>
+    </noscript>
+
+    <script src="script.js" defer></script>
+  </body>
+</html>
