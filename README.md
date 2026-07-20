@@ -1,6 +1,4 @@
 # The-World-Incremental
-- Made by Jovian Benjamin Koo
-
 The World Incremental is a browser-based incremental game currently in early development.
 
 The game will begin on Earth in the Overworld layer, with Power as its primary currency. Additional currencies, upgrades, mechanics, and progression layers will be designed and added gradually throughout development.
