@@ -5,152 +5,415 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="The World Incremental — generate Power, purchase upgrades, and expand beyond Earth."
+      content="The World Incremental — generate Power, rebirth, prestige, and unlock new worlds."
     />
     <title>The World Incremental</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="background-grid" aria-hidden="true"></div>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
 
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">PRE-ALPHA</p>
-        <h1>The World Incremental</h1>
-      </div>
-
-      <div class="topbar-actions">
-        <span id="save-status" class="save-status" aria-live="polite">Saved</span>
-        <button id="reset-save-button" class="button button-danger" type="button">
-          Reset Save
-        </button>
-      </div>
-    </header>
-
-    <main class="game-shell">
-      <nav class="layer-tabs" aria-label="Game layers">
-        <button class="layer-tab active" type="button" aria-current="page">
-          Overworld
-        </button>
-        <button class="layer-tab locked" type="button" disabled>
-          Space <span>Locked</span>
-        </button>
-      </nav>
-
-      <section class="resource-panel" aria-labelledby="power-heading">
-        <p class="section-label">MAIN CURRENCY</p>
-        <h2 id="power-heading">Power</h2>
-        <p id="power-amount" class="resource-value">0</p>
-        <p id="power-rate" class="resource-rate">+1 Power/s</p>
-      </section>
-
-      <section class="content-grid">
-        <article class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">REPEATABLE UPGRADE</p>
-              <h2>Power Generator</h2>
-            </div>
-            <span id="generator-level" class="level-badge">Level 0</span>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">◈</span>
+          <div>
+            <p class="eyebrow">PRE-ALPHA</p>
+            <h1>The World Incremental</h1>
           </div>
+        </div>
 
-          <p class="card-description">
-            Each level adds <strong>+1 Power per second</strong>.
-          </p>
-
-          <div class="stats-row">
-            <div>
-              <span>Current output</span>
-              <strong id="generator-output">+0 Power/s</strong>
-            </div>
-            <div>
-              <span>Next cost</span>
-              <strong id="generator-cost">10 Power</strong>
-            </div>
-          </div>
-
-          <div class="purchase-controls" aria-label="Generator purchase amount">
-            <button class="purchase-mode active" type="button" data-buy-mode="1">
-              Buy 1
-            </button>
-            <button class="purchase-mode" type="button" data-buy-mode="10">
-              Buy 10
-            </button>
-            <button class="purchase-mode" type="button" data-buy-mode="max">
-              Buy Max
-            </button>
-          </div>
-
-          <button id="buy-generator-button" class="button button-primary buy-button" type="button">
-            Buy Power Generator
+        <nav class="world-nav" aria-label="Game worlds">
+          <p class="nav-label">WORLDS</p>
+          <button class="nav-button active" type="button" data-layer="overworld" aria-current="page">
+            <span class="nav-icon">◎</span>
+            <span>Overworld</span>
+          </button>
+          <button class="nav-button locked" id="underworld-nav" type="button" data-layer="underworld" disabled>
+            <span class="nav-icon">◆</span>
+            <span>Underworld</span>
+            <small>Rebirth</small>
+          </button>
+          <button class="nav-button locked" id="sky-nav" type="button" data-layer="sky" disabled>
+            <span class="nav-icon">△</span>
+            <span>Sky World</span>
+            <small>Prestige</small>
           </button>
 
-          <p id="purchase-preview" class="purchase-preview">
-            Purchase 1 level for 10 Power.
-          </p>
-        </article>
+          <p class="nav-label nav-label-spaced">SYSTEM</p>
+          <button class="nav-button" type="button" data-layer="progress">
+            <span class="nav-icon">◇</span>
+            <span>Progress</span>
+          </button>
+        </nav>
 
-        <article class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">STATISTICS</p>
-              <h2>Overworld Progress</h2>
+        <div class="sidebar-footer">
+          <span id="save-status" class="save-status" aria-live="polite">Saved</span>
+          <span>Version 0.2.0</span>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="resource-strip" aria-label="Currencies">
+            <div class="resource-chip primary-chip">
+              <span>Power</span>
+              <strong id="header-power">0</strong>
+            </div>
+            <div class="resource-chip">
+              <span>Sparks</span>
+              <strong id="header-sparks">0</strong>
+            </div>
+            <div class="resource-chip">
+              <span>Rebirth Points</span>
+              <strong id="header-rebirth-points">0</strong>
+            </div>
+            <div class="resource-chip" id="header-souls-chip" hidden>
+              <span>Souls</span>
+              <strong id="header-souls">0</strong>
+            </div>
+            <div class="resource-chip" id="header-prestige-chip">
+              <span>Prestige Points</span>
+              <strong id="header-prestige-points">0</strong>
+            </div>
+            <div class="resource-chip" id="header-aether-chip" hidden>
+              <span>Aether</span>
+              <strong id="header-aether">0</strong>
             </div>
           </div>
 
-          <dl class="statistics-list">
+          <div class="toolbar">
+            <button id="manual-save-button" class="icon-button" type="button">Save</button>
+            <button id="export-save-button" class="icon-button" type="button">Export</button>
+            <button id="import-save-button" class="icon-button" type="button">Import</button>
+            <button id="reset-save-button" class="icon-button danger" type="button">Reset</button>
+          </div>
+        </header>
+
+        <section id="layer-overworld" class="layer-view active" data-layer-view="overworld">
+          <div class="layer-heading">
             <div>
-              <dt>Total Power earned</dt>
-              <dd id="total-power-earned">0</dd>
+              <p class="eyebrow">WORLD 01</p>
+              <h2>Overworld</h2>
+              <p>Generate Power, collect Sparks, and break through the first reset layers.</p>
             </div>
+            <div class="buy-mode-control" aria-label="Purchase amount">
+              <button class="buy-mode active" type="button" data-buy-mode="1">1</button>
+              <button class="buy-mode" type="button" data-buy-mode="10">10</button>
+              <button class="buy-mode" type="button" data-buy-mode="max">Max</button>
+            </div>
+          </div>
+
+          <section class="hero-resource overworld-hero">
+            <p>POWER</p>
+            <strong id="power-amount">0</strong>
+            <span id="power-rate">+1 Power/s</span>
+            <div class="hero-multiplier">Total multiplier <b id="power-multiplier">×1</b></div>
+          </section>
+
+          <div class="card-grid two-column">
+            <article class="game-card accent-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">MAIN PRODUCER</p>
+                  <h3>Power Generator</h3>
+                </div>
+                <span id="generator-level" class="level-pill">Level 0</span>
+              </div>
+              <p class="card-copy">Each level adds one unit of base Power production.</p>
+              <div class="effect-grid">
+                <div><span>Output</span><strong id="generator-output">+0/s</strong></div>
+                <div><span>Next cost</span><strong id="generator-cost">10 Power</strong></div>
+              </div>
+              <button id="buy-generator-button" class="action-button" type="button">Buy Generator</button>
+              <p id="generator-preview" class="purchase-preview">Purchase 1 level for 10 Power.</p>
+            </article>
+
+            <article class="game-card spark-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">SECONDARY CURRENCY</p>
+                  <h3>Spark Collector</h3>
+                </div>
+                <span id="spark-collector-level" class="level-pill">Level 0</span>
+              </div>
+              <p class="card-copy">Collectors create Sparks. Stored Sparks also strengthen Power.</p>
+              <div class="effect-grid">
+                <div><span>Spark rate</span><strong id="spark-rate">+0/s</strong></div>
+                <div><span>Next cost</span><strong id="spark-collector-cost">100 Power</strong></div>
+              </div>
+              <button id="buy-spark-collector-button" class="action-button spark-action" type="button">Buy Collector</button>
+              <p id="spark-collector-preview" class="purchase-preview">Purchase 1 level for 100 Power.</p>
+            </article>
+
+            <article class="game-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">SPARK UPGRADE</p>
+                  <h3>Voltage</h3>
+                </div>
+                <span id="voltage-level" class="level-pill">Level 0</span>
+              </div>
+              <p class="card-copy">Each level doubles all Power generation.</p>
+              <div class="single-effect">
+                <span>Current effect</span>
+                <strong id="voltage-effect">×1 Power</strong>
+              </div>
+              <button id="buy-voltage-button" class="action-button secondary-action" type="button">Upgrade Voltage</button>
+              <p id="voltage-cost" class="purchase-preview">Cost: 10 Sparks</p>
+            </article>
+
+            <article class="game-card rebirth-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">RESET LAYER</p>
+                  <h3>Rebirth</h3>
+                </div>
+                <span class="level-pill">Minimum 1 K Power</span>
+              </div>
+              <p class="card-copy">Reset Power, Generators, Sparks, and Spark upgrades for permanent Rebirth Points.</p>
+              <div class="reset-reward">
+                <span>You will gain</span>
+                <strong><span id="rebirth-gain">0</span> RP</strong>
+              </div>
+              <button id="rebirth-button" class="action-button rebirth-action" type="button">Rebirth</button>
+              <p id="rebirth-requirement" class="purchase-preview">Reach 1 K Power to Rebirth.</p>
+            </article>
+
+            <article class="game-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">REBIRTH UPGRADE</p>
+                  <h3>Rebirth Power</h3>
+                </div>
+                <span id="rebirth-power-level" class="level-pill">Level 0</span>
+              </div>
+              <p class="card-copy">Each level triples all Power generation.</p>
+              <div class="single-effect"><span>Current effect</span><strong id="rebirth-power-effect">×1 Power</strong></div>
+              <button id="buy-rebirth-power-button" class="action-button secondary-action" type="button">Buy Upgrade</button>
+              <p id="rebirth-power-cost" class="purchase-preview">Cost: 1 RP</p>
+            </article>
+
+            <article class="game-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">REBIRTH UPGRADE</p>
+                  <h3>Generator Memory</h3>
+                </div>
+                <span id="generator-memory-level" class="level-pill">Level 0</span>
+              </div>
+              <p class="card-copy">Adds five permanent base Generator levels per upgrade until Prestige.</p>
+              <div class="single-effect"><span>Current effect</span><strong id="generator-memory-effect">+0 base levels</strong></div>
+              <button id="buy-generator-memory-button" class="action-button secondary-action" type="button">Buy Upgrade</button>
+              <p id="generator-memory-cost" class="purchase-preview">Cost: 2 RP</p>
+            </article>
+
+            <article class="game-card prestige-card full-span">
+              <div class="prestige-layout">
+                <div>
+                  <p class="card-kicker">DEEP RESET</p>
+                  <h3>Prestige</h3>
+                  <p class="card-copy">Reset Overworld, Rebirth, and Underworld progress. Prestige Points and Sky World progress remain.</p>
+                </div>
+                <div class="prestige-action-area">
+                  <span>Minimum 1 Qn Power</span>
+                  <strong>Gain <b id="prestige-gain">0</b> PP</strong>
+                  <button id="prestige-button" class="action-button prestige-action" type="button">Prestige</button>
+                  <small id="prestige-requirement">Reach 1 Qn Power.</small>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="layer-underworld" class="layer-view" data-layer-view="underworld" hidden>
+          <div class="layer-heading">
             <div>
-              <dt>Generator levels bought</dt>
-              <dd id="total-generators-bought">0</dd>
+              <p class="eyebrow underworld-text">WORLD 02</p>
+              <h2>Underworld</h2>
+              <p>Harvest Souls to amplify Power and increase future Rebirth rewards.</p>
             </div>
+          </div>
+
+          <section class="hero-resource underworld-hero">
+            <p>SOULS</p>
+            <strong id="souls-amount">0</strong>
+            <span id="souls-rate">+0 Souls/s</span>
+            <div class="hero-multiplier">Power effect <b id="souls-passive-effect">×1</b></div>
+          </section>
+
+          <div class="card-grid three-column">
+            <article class="game-card underworld-card">
+              <p class="card-kicker">SOUL PRODUCER</p>
+              <h3>Soul Harvester <span id="soul-harvester-level" class="inline-level">Lv. 0</span></h3>
+              <p class="card-copy">Increases passive Soul production.</p>
+              <div class="single-effect"><span>Rate</span><strong id="soul-harvester-effect">+0.25 Souls/s</strong></div>
+              <button id="buy-soul-harvester-button" class="action-button underworld-action" type="button">Buy Harvester</button>
+              <p id="soul-harvester-cost" class="purchase-preview">Cost: 10 Souls</p>
+            </article>
+
+            <article class="game-card underworld-card">
+              <p class="card-kicker">SOUL UPGRADE</p>
+              <h3>Tormented Power <span id="soul-power-level" class="inline-level">Lv. 0</span></h3>
+              <p class="card-copy">Each level triples all Power generation.</p>
+              <div class="single-effect"><span>Effect</span><strong id="soul-power-effect">×1 Power</strong></div>
+              <button id="buy-soul-power-button" class="action-button underworld-action" type="button">Buy Upgrade</button>
+              <p id="soul-power-cost" class="purchase-preview">Cost: 25 Souls</p>
+            </article>
+
+            <article class="game-card underworld-card">
+              <p class="card-kicker">REBIRTH BOOST</p>
+              <h3>Dark Catalyst <span id="soul-catalyst-level" class="inline-level">Lv. 0</span></h3>
+              <p class="card-copy">Each level doubles Rebirth Point gain.</p>
+              <div class="single-effect"><span>Effect</span><strong id="soul-catalyst-effect">×1 RP</strong></div>
+              <button id="buy-soul-catalyst-button" class="action-button underworld-action" type="button">Buy Catalyst</button>
+              <p id="soul-catalyst-cost" class="purchase-preview">Cost: 100 Souls</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="layer-sky" class="layer-view" data-layer-view="sky" hidden>
+          <div class="layer-heading">
             <div>
-              <dt>Current session</dt>
-              <dd id="session-time">0s</dd>
+              <p class="eyebrow sky-text">WORLD 03</p>
+              <h2>Sky World</h2>
+              <p>Condense Aether and apply celestial multipliers across every previous world.</p>
             </div>
+          </div>
+
+          <section class="hero-resource sky-hero">
+            <p>AETHER</p>
+            <strong id="aether-amount">0</strong>
+            <span id="aether-rate">+0 Aether/s</span>
+            <div class="hero-multiplier">Power effect <b id="aether-passive-effect">×1</b></div>
+          </section>
+
+          <div class="card-grid three-column">
+            <article class="game-card sky-card">
+              <p class="card-kicker">AETHER PRODUCER</p>
+              <h3>Aether Condenser <span id="aether-condenser-level" class="inline-level">Lv. 0</span></h3>
+              <p class="card-copy">Increases passive Aether production.</p>
+              <div class="single-effect"><span>Rate</span><strong id="aether-condenser-effect">+0.1 Aether/s</strong></div>
+              <button id="buy-aether-condenser-button" class="action-button sky-action" type="button">Buy Condenser</button>
+              <p id="aether-condenser-cost" class="purchase-preview">Cost: 10 Aether</p>
+            </article>
+
+            <article class="game-card sky-card">
+              <p class="card-kicker">CELESTIAL UPGRADE</p>
+              <h3>Celestial Power <span id="celestial-power-level" class="inline-level">Lv. 0</span></h3>
+              <p class="card-copy">Each level multiplies Power generation by ten.</p>
+              <div class="single-effect"><span>Effect</span><strong id="celestial-power-effect">×1 Power</strong></div>
+              <button id="buy-celestial-power-button" class="action-button sky-action" type="button">Buy Upgrade</button>
+              <p id="celestial-power-cost" class="purchase-preview">Cost: 25 Aether</p>
+            </article>
+
+            <article class="game-card sky-card">
+              <p class="card-kicker">GLOBAL UPGRADE</p>
+              <h3>Sky Resonance <span id="sky-resonance-level" class="inline-level">Lv. 0</span></h3>
+              <p class="card-copy">Each level doubles Sparks, Souls, and Aether production.</p>
+              <div class="single-effect"><span>Effect</span><strong id="sky-resonance-effect">×1 currencies</strong></div>
+              <button id="buy-sky-resonance-button" class="action-button sky-action" type="button">Buy Resonance</button>
+              <p id="sky-resonance-cost" class="purchase-preview">Cost: 100 Aether</p>
+            </article>
+
+            <article class="game-card full-span">
+              <div class="card-title-row">
+                <div>
+                  <p class="card-kicker">PRESTIGE UPGRADE</p>
+                  <h3>Cosmic Amplifier</h3>
+                </div>
+                <span id="prestige-power-level" class="level-pill">Level 0</span>
+              </div>
+              <p class="card-copy">Spend Prestige Points to multiply Power by ten per level. This upgrade survives future Prestiges.</p>
+              <div class="single-effect"><span>Current effect</span><strong id="prestige-power-effect">×1 Power</strong></div>
+              <button id="buy-prestige-power-button" class="action-button prestige-action" type="button">Buy Amplifier</button>
+              <p id="prestige-power-cost" class="purchase-preview">Cost: 1 PP</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="layer-progress" class="layer-view" data-layer-view="progress" hidden>
+          <div class="layer-heading">
             <div>
-              <dt>Offline gain limit</dt>
-              <dd>28 days</dd>
+              <p class="eyebrow">SYSTEM</p>
+              <h2>Progress</h2>
+              <p>Milestones, run information, and display settings.</p>
             </div>
-          </dl>
-        </article>
-      </section>
-    </main>
+          </div>
+
+          <div class="progress-grid">
+            <article class="game-card">
+              <p class="card-kicker">MILESTONES</p>
+              <h3>World Milestones</h3>
+              <div id="milestone-list" class="milestone-list"></div>
+            </article>
+
+            <article class="game-card">
+              <p class="card-kicker">RUN INFORMATION</p>
+              <h3>Current Progress</h3>
+              <dl class="info-list">
+                <div><dt>Rebirths</dt><dd id="rebirth-count">0</dd></div>
+                <div><dt>Prestiges</dt><dd id="prestige-count">0</dd></div>
+                <div><dt>Session time</dt><dd id="session-time">0s</dd></div>
+                <div><dt>Offline limit</dt><dd>28 days</dd></div>
+                <div><dt>Achievement multiplier</dt><dd id="achievement-multiplier">×1</dd></div>
+              </dl>
+            </article>
+
+            <article class="game-card full-span">
+              <p class="card-kicker">DISPLAY</p>
+              <h3>Number notation</h3>
+              <label class="select-label" for="notation-select">Choose how large numbers are displayed.</label>
+              <select id="notation-select" class="select-control">
+                <option value="standard">Standard suffixes</option>
+                <option value="scientific">Scientific notation</option>
+              </select>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" aria-live="polite"></div>
 
     <dialog id="offline-dialog" class="game-dialog">
       <div class="dialog-content">
-        <p class="section-label">WELCOME BACK</p>
+        <p class="eyebrow">WELCOME BACK</p>
         <h2>Offline progress</h2>
-        <p id="offline-message">You generated Power while away.</p>
-        <button id="close-offline-dialog" class="button button-primary" type="button">
-          Continue
-        </button>
+        <div id="offline-results" class="offline-results"></div>
+        <button id="close-offline-dialog" class="action-button" type="button">Continue</button>
       </div>
     </dialog>
 
     <dialog id="reset-dialog" class="game-dialog">
       <div class="dialog-content">
-        <p class="section-label">CONFIRM RESET</p>
+        <p class="eyebrow">CONFIRM RESET</p>
         <h2>Delete all progress?</h2>
-        <p>This permanently removes your local save data.</p>
+        <p class="dialog-copy">This permanently removes every currency, upgrade, and unlocked world from this browser.</p>
         <div class="dialog-actions">
-          <button id="cancel-reset-button" class="button button-secondary" type="button">
-            Cancel
-          </button>
-          <button id="confirm-reset-button" class="button button-danger" type="button">
-            Delete Save
-          </button>
+          <button id="cancel-reset-button" class="icon-button" type="button">Cancel</button>
+          <button id="confirm-reset-button" class="icon-button danger" type="button">Delete Save</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="save-data-dialog" class="game-dialog save-data-dialog">
+      <div class="dialog-content">
+        <p class="eyebrow">SAVE DATA</p>
+        <h2 id="save-data-title">Export save</h2>
+        <p id="save-data-description" class="dialog-copy">Copy this text and store it somewhere safe.</p>
+        <textarea id="save-data-textarea" class="save-textarea" spellcheck="false"></textarea>
+        <p id="save-data-error" class="error-message" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="close-save-data-button" class="icon-button" type="button">Close</button>
+          <button id="apply-import-button" class="action-button" type="button" hidden>Import Save</button>
         </div>
       </div>
     </dialog>
 
     <noscript>
-      <div class="noscript-message">
-        JavaScript is required to play The World Incremental.
-      </div>
+      <div class="noscript-message">JavaScript is required to play The World Incremental.</div>
     </noscript>
 
     <script src="script.js" defer></script>
