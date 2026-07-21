@@ -6,11 +6,9 @@ Incremental is a browser-based incremental game which is currently in early deve
 Current status: Re-planning and Re-writing the game
 The game is not yet playable. The game is still being re-writen
 
-**Development**
-This repository will contain the source code and development history for The World Incremental.
-
 **Version**
-Current development stage: Re-planning
+
+Current development stage: Rewriting code (full changes)
 
 **License**
 Copyright © 2026. All rights reserved.
