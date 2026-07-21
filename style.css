@@ -93,6 +93,8 @@ button { color: inherit; }
 .prestige-item { padding: 16px 18px; display: grid; grid-template-columns: 70px 180px 1fr; gap: 16px; align-items: center; }
 .prestige-item.current { border-color: var(--prestige); }
 .prestige-item.unlocked { border-color: rgba(88,214,141,.4); }
+.achievement-item.locked { opacity: .45; }
+.achievement-item.unlocked .prestige-number { color: var(--success); }
 .prestige-number { font-size: 22px; font-weight: 800; color: var(--prestige); }
 .prestige-item p { color: var(--muted); margin: 0; line-height: 1.45; }
 .tab-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -114,6 +116,7 @@ button { color: inherit; }
 .rune-card .rune-type { color: var(--muted); font-size: 11px; }
 .rune-card .rune-level { font-size: 22px; font-weight: 800; margin: 12px 0; }
 .rune-card p { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.salvage-button { width: 100%; margin-top: 12px; font-size: 12px; padding: 8px 10px; }
 .exp-track { height: 7px; background: #090c12; border: 1px solid var(--border); margin-top: 12px; }
 .exp-track > span { display: block; height: 100%; background: var(--accent); }
 .active-survey { padding: 18px; margin-bottom: 16px; }

@@ -130,7 +130,9 @@ const PRESTIGE_REWARDS = [
 ];
 
 const PRESTIGE_LOG_BONUSES = [5, 12, 25, 55, 80, 120, 180, 260, 380, 600];
-const PRESTIGE_EXPONENTS = [1, 1, 1.5, 3, 3.5, 4, 4.7, 5.5, 6.5, 7.8, 9.5];
+// Grows by a flat +0.25 per Prestige instead of large uneven jumps, so no single
+// reset dwarfs the value of fixed multipliers earned from trees/runes/relics.
+const PRESTIGE_EXPONENTS = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5];
 
 const RUNE_GROUPS = [
   { id: "basic", name: "Basic", cost: bn(25), unlock: () => state.prestige >= 1 },
@@ -165,6 +167,24 @@ const SURVEYS = [
   { id: "starfall", name: "Starfall Boundary", duration: 7200, reward: { surveyData: bn(800), stardust: bn(200) }, desc: "A late route that returns Stardust." },
 ];
 
+const ACHIEVEMENTS = [
+  { id: "power1", name: "First Spark", desc: "Reach 100 Power.", check: () => state.power.gte(100) },
+  { id: "power2", name: "Overloaded", desc: "Reach 1e6 Power.", check: () => state.power.gte("1e6") },
+  { id: "power3", name: "Power Surge", desc: "Reach 1e18 Power.", check: () => state.power.gte("1e18") },
+  { id: "rebirth1", name: "Reborn", desc: "Perform your first Rebirth.", check: () => state.totalRebirths.gt(0) },
+  { id: "rebirth2", name: "Cycle Breaker", desc: "Reach 100 total Rebirths.", check: () => state.totalRebirths.gte(100) },
+  { id: "prestige1", name: "New Foundations", desc: "Reach Prestige 1.", check: () => state.prestige >= 1 },
+  { id: "prestige5", name: "Halfway to Everything", desc: "Reach Prestige 5.", check: () => state.prestige >= 5 },
+  { id: "prestige10", name: "The Continuum", desc: "Reach Prestige 10.", check: () => state.prestige >= 10 },
+  { id: "runes10", name: "Rune Collector", desc: "Roll 10 Runes total.", check: () => state.totalRunesRolled >= 10 },
+  { id: "runes100", name: "Rune Hoarder", desc: "Roll 100 Runes total.", check: () => state.totalRunesRolled >= 100 },
+  { id: "relics1", name: "First Forge", desc: "Forge your first Relic.", check: () => state.totalRelicsForged >= 1 },
+  { id: "relics25", name: "Relic Master", desc: "Forge 25 Relics.", check: () => state.totalRelicsForged >= 25 },
+  { id: "surveys1", name: "Surveyor", desc: "Complete a World Survey.", check: () => state.totalSurveysCompleted >= 1 },
+  { id: "surveys10", name: "Cartographer", desc: "Complete 10 World Surveys.", check: () => state.totalSurveysCompleted >= 10 },
+  { id: "core1", name: "Core Ignition", desc: "Activate the Core for the first time.", check: () => state.totalCoreActivations >= 1 },
+];
+
 const translations = {
   en: {},
   id: { main: "UTAMA", system: "SISTEM", overworld: "Dunia Atas", rebirth: "Kelahiran Kembali", prestige: "Prestise", trees: "Pohon", settings: "Pengaturan", power: "Daya", rebirths: "Rebirth", prisms: "Prisma", powerPerSecond: "Daya per detik", production: "PRODUKSI", generator: "Generator", output: "Produksi", nextCost: "Harga berikutnya", buyOne: "Beli 1", buyMax: "Beli Maks", fixedUpgrades: "UPGRADE TETAP", language: "Bahasa", notation: "Notasi" },
@@ -193,7 +213,8 @@ function defaultState() {
     realityCollectorLevel: 0, realityPowerLevel: 0,
     continuumCollectorLevel: 0, continuumPowerLevel: 0,
     momentumSeconds: 0,
-    trees: {}, runeCopies: {}, relicLevels: {},
+    trees: {}, runeCopies: {}, relicLevels: {}, achievements: {},
+    totalRunesRolled: 0, totalRelicsForged: 0, totalSurveysCompleted: 0, totalCoreActivations: 0,
     activeRuneGroup: "basic", activeTree: "power",
     activeSurvey: null,
     notation: "mixed", language: "en", developerUnlocked: false,
@@ -221,6 +242,7 @@ function loadGame() {
     state.trees = parsed.trees && typeof parsed.trees === "object" ? parsed.trees : {};
     state.runeCopies = parsed.runeCopies && typeof parsed.runeCopies === "object" ? parsed.runeCopies : {};
     state.relicLevels = parsed.relicLevels && typeof parsed.relicLevels === "object" ? parsed.relicLevels : {};
+    state.achievements = parsed.achievements && typeof parsed.achievements === "object" ? parsed.achievements : {};
     state.prestige = Math.max(0, Math.min(10, Math.floor(Number(state.prestige) || 0)));
     state.lastUpdateAt = Number(parsed.lastUpdateAt || parsed.lastSavedAt || Date.now());
     const elapsed = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - state.lastUpdateAt) / 1000));
@@ -274,6 +296,22 @@ function formatDuration(seconds) {
 
 function treeLevel(id) { return Number(state.trees[id] || 0); }
 function relicLevel(id) { return Number(state.relicLevels[id] || 0); }
+
+function refreshAchievements() {
+  let changed = false;
+  for (const a of ACHIEVEMENTS) {
+    if (!state.achievements[a.id] && a.check()) {
+      state.achievements[a.id] = true;
+      changed = true;
+      showToastMessage(`Achievement unlocked: ${a.name}`);
+    }
+  }
+  return changed;
+}
+function unlockedAchievementCount() { return Object.keys(state.achievements).length; }
+// Purely a small, steadily-stacking bonus — the reward for exploring the game's
+// systems rather than a progression requirement in its own right.
+function achievementMultiplier() { return bn(1.01).pow(unlockedAchievementCount()); }
 
 function prestigeFixedMultiplier() {
   let log = 0;
@@ -333,6 +371,7 @@ function fixedPowerMultiplier() {
   result = result.mul(pow10(state.continuumPowerLevel * 100));
   result = result.mul(bn(2).pow(runeAggregate("power")));
   result = result.mul(bn(3).pow(relicLevel("engine")));
+  result = result.mul(achievementMultiplier());
   if (momentumUnlocked()) result = result.mul(getMomentumMultiplier());
   return result;
 }
@@ -414,7 +453,15 @@ function getCoreRate() {
 }
 function getSparkRate() { return state.prestige >= 1 ? state.sparkCollectorLevel * (1.5 ** runeAggregate("copies")) : 0; }
 function getSoulRate() { return state.prestige >= 3 ? state.soulHarvesterLevel * (1.5 ** runeAggregate("souls")) : 0; }
-function getAetherRate() { return state.prestige >= 4 ? state.aetherHarvesterLevel * (1.5 ** runeAggregate("aether")) : 0; }
+function getMomentumCharge() { return momentumUnlocked() ? Math.min(1, state.momentumSeconds / 3600) : 0; }
+function getAetherRate() {
+  if (state.prestige < 4) return 0;
+  const base = state.aetherHarvesterLevel * (1.5 ** runeAggregate("aether"));
+  // Ramps from 25% to 100% as Momentum charges, so Sky World rewards keeping
+  // a session running rather than just being another buy-two-things tier.
+  const momentumFactor = momentumUnlocked() ? 0.25 + 0.75 * getMomentumCharge() : 1;
+  return base * momentumFactor;
+}
 function getEchoRate() { return state.prestige >= 5 ? 0.05 : 0; }
 function getStardustRate() { return state.prestige >= 6 ? state.stardustCollectorLevel : 0; }
 function getStarRate() { return state.prestige >= 7 ? state.starCollectorLevel : 0; }
@@ -440,6 +487,23 @@ function processProduction(seconds) {
   state.continuumCores = state.continuumCores.add(getContinuumRate() * seconds * factor);
   if (momentumUnlocked()) state.momentumSeconds = Math.min(3600, state.momentumSeconds + seconds);
   processSurvey(seconds);
+  processSoulDecay(seconds);
+  refreshAchievements();
+}
+
+// Souls above a small buffer (three purchases' worth of the next Soul Furnace
+// level) decay steadily. This gives the Underworld its own decision, like the
+// Core: bank a little for safety, but don't let Souls stockpile indefinitely.
+function getSoulDecayThreshold() {
+  return bn(100).mul(pow10(state.soulPowerLevel * 2)).mul(3);
+}
+function getSoulDecayRate() { return 0.02; }
+function processSoulDecay(seconds) {
+  if (state.prestige < 3) return;
+  const threshold = getSoulDecayThreshold();
+  if (state.souls.lte(threshold)) return;
+  const excess = state.souls.sub(threshold);
+  state.souls = state.souls.sub(excess.mul(Math.min(1, getSoulDecayRate() * seconds)));
 }
 
 function processSurvey(seconds) {
@@ -449,6 +513,7 @@ function processSurvey(seconds) {
   const route = SURVEYS.find((x) => x.id === state.activeSurvey.id);
   if (route) {
     for (const [key, amount] of Object.entries(route.reward)) state[key] = state[key].add(amount);
+    state.totalSurveysCompleted += 1;
     showToastMessage(`${route.name} completed`);
   }
   state.activeSurvey = null;
@@ -589,6 +654,7 @@ function rollRune(count) {
     const key = `${group.id}:${chosen}`;
     state.runeCopies[key] = Number(state.runeCopies[key] || 0) + 1;
     if (Math.random() < treeLevel("duplicateChance") * 0.03 + runeAggregate("copies") * 0.005) state.runeCopies[key] += 1;
+    state.totalRunesRolled += 1;
     results.push(RUNE_NAMES[group.id][chosen]);
   }
   $("#rune-roll-result").textContent = count === 1 ? `Rolled ${results[0]}` : `Rolled ${count} Runes`;
@@ -605,7 +671,21 @@ function forgeRelic() {
   let relic = RELICS[0];
   for (let i = 0; i < adjusted.length; i += 1) { random -= adjusted[i]; if (random <= 0) { relic = RELICS[i]; break; } }
   state.relicLevels[relic.id] = relicLevel(relic.id) + 1;
+  state.totalRelicsForged += 1;
   $("#relic-result").textContent = `Forged ${relic.name}`;
+  render();
+}
+
+// Converts one level of an unwanted Relic back into Echoes at half the going
+// forge rate, so a bad gacha spread can be reshaped instead of sitting dead.
+function salvageRelic(id) {
+  const level = relicLevel(id);
+  if (level <= 0) return;
+  const totalLevels = Object.values(state.relicLevels).reduce((a, b) => a + Number(b || 0), 0);
+  const refund = bn(100).mul(pow10(Math.max(0, totalLevels - 1) * 0.25)).mul(0.5);
+  state.relicLevels[id] = level - 1;
+  state.echoes = state.echoes.add(refund);
+  showToastMessage(`Salvaged 1 level for ${format(refund)} Echoes`);
   render();
 }
 
@@ -675,7 +755,7 @@ function renderNavigation() {
   if (state.prestige >= 10) entries.push(["continuum", "∞", "Continuum"]);
   $("#progressive-nav").innerHTML = entries.length ? `<p class="nav-label">UNLOCKED SYSTEMS</p>${entries.map(([view, icon, name]) => `<button class="nav-button ${currentView === view ? "active" : ""}" data-view="${view}" type="button"><span>${icon}</span><b>${name}</b></button>`).join("")}` : "";
   $$(".nav-button").forEach((button) => button.onclick = () => showView(button.dataset.view));
-  const availableViews = new Set(["overworld", "rebirth", "prestige", "trees", "settings", ...entries.map((x) => x[0])]);
+  const availableViews = new Set(["overworld", "rebirth", "prestige", "trees", "achievements", "settings", ...entries.map((x) => x[0])]);
   if (!availableViews.has(currentView)) showView("overworld");
 }
 
@@ -783,11 +863,20 @@ function renderCore() {
 function renderWorlds() {
   if (state.prestige >= 3) {
     $("#souls-amount").textContent = format(state.souls);
+    const threshold = getSoulDecayThreshold();
+    const decaying = state.souls.gt(threshold);
     genericWorldCards($("#underworld-grid"), "soul", "Souls", "Soul Harvester", "Soul Furnace", "soulHarvesterLevel", "soulPowerLevel", pow10(50 + state.soulHarvesterLevel * 6), bn(100).mul(pow10(state.soulPowerLevel * 2)), `+${format(getSoulRate())}/s`, `×${format(pow10(state.soulPowerLevel * 15))} Power`);
+    const note = $("#underworld-note");
+    note.style.color = decaying ? "var(--danger)" : "var(--muted)";
+    note.textContent = decaying
+      ? `Souls above ${format(threshold)} are decaying at ${(getSoulDecayRate() * 100).toFixed(0)}%/s — spend them on Soul Furnace.`
+      : `Souls stay safe up to ${format(threshold)}. Beyond that they decay — bank in Soul Furnace levels instead of hoarding.`;
   }
   if (state.prestige >= 4) {
     $("#aether-amount").textContent = format(state.aether);
     genericWorldCards($("#sky-grid"), "aether", "Aether", "Aether Harvester", "Celestial Engine", "aetherHarvesterLevel", "aetherPowerLevel", pow10(8 + state.aetherHarvesterLevel * 4), bn(100).mul(pow10(state.aetherPowerLevel * 2)), `+${format(getAetherRate())}/s`, `×${format(pow10(state.aetherPowerLevel * 22))} Power`);
+    const charge = getMomentumCharge();
+    $("#sky-note").textContent = `Momentum charge: ${(charge * 100).toFixed(0)}% — Aether output scales from 25% to 100% as Momentum builds over the hour.`;
   }
   if (state.prestige >= 6) {
     $("#stardust-amount").textContent = format(state.stardust);
@@ -830,7 +919,22 @@ function renderRelics() {
   const cost = bn(100).mul(pow10(totalLevels * .25));
   $("#forge-relic").textContent = `Forge Relic · ${format(cost)} Echoes`;
   $("#forge-relic").disabled = !state.echoes.gte(cost);
-  $("#relic-grid").innerHTML = RELICS.map((r) => `<article class="rune-card"><h3>${r.name}</h3><span class="rune-type">Relic</span><div class="rune-level">LV ${relicLevel(r.id)}</div><p>${r.text}</p><small>Base weight: ${r.weight}</small></article>`).join("");
+  $("#relic-grid").innerHTML = RELICS.map((r) => {
+    const level = relicLevel(r.id);
+    const refund = bn(100).mul(pow10(Math.max(0, totalLevels - 1) * 0.25)).mul(0.5);
+    return `<article class="rune-card"><h3>${r.name}</h3><span class="rune-type">Relic</span><div class="rune-level">LV ${level}</div><p>${r.text}</p><small>Base weight: ${r.weight}</small><button class="action-button secondary salvage-button" type="button" data-salvage="${r.id}" ${level <= 0 ? "disabled" : ""}>Salvage 1 lv → ${format(refund)} Echoes</button></article>`;
+  }).join("");
+  $$('[data-salvage]').forEach((button) => button.onclick = () => salvageRelic(button.dataset.salvage));
+}
+
+function renderAchievements() {
+  const unlockedCount = unlockedAchievementCount();
+  $("#achievement-count").textContent = `${unlockedCount} / ${ACHIEVEMENTS.length}`;
+  $("#achievement-bonus").textContent = `×${format(achievementMultiplier())} fixed Power`;
+  $("#achievement-grid").innerHTML = ACHIEVEMENTS.map((a) => {
+    const unlocked = !!state.achievements[a.id];
+    return `<article class="prestige-item achievement-item ${unlocked ? "unlocked" : "locked"}"><div class="prestige-number">${unlocked ? "✓" : "?"}</div><div><b>${a.name}</b><small>${unlocked ? " · Unlocked" : ""}</small></div><p>${unlocked ? a.desc : "Keep playing to reveal this milestone."}</p></article>`;
+  }).join("");
 }
 
 function renderSettings() {
@@ -853,7 +957,7 @@ function applyLanguage() {
 }
 
 function render() {
-  renderNavigation(); renderTop(); renderOverworld(); renderRebirth(); renderPrestige(); renderTrees();
+  renderNavigation(); renderTop(); renderOverworld(); renderRebirth(); renderPrestige(); renderTrees(); renderAchievements();
   if (state.prestige >= 1) { renderSparks(); renderRunes(); }
   if (state.prestige >= 2) renderCore();
   renderWorlds(); renderSurveys(); renderRelics(); renderSettings(); applyLanguage();
@@ -897,7 +1001,7 @@ function bindEvents() {
   $("#rebirth-button").onclick = performRebirth; $("#prestige-button").onclick = performPrestige;
   $$('[data-tree-tab]').forEach((button) => button.onclick = () => { state.activeTree = button.dataset.treeTab; renderTrees(); });
   $("#roll-rune-one").onclick = () => rollRune(1); $("#roll-rune-ten").onclick = () => rollRune(10);
-  $("#toggle-core").onclick = () => { state.coreActive = !state.coreActive; render(); };
+  $("#toggle-core").onclick = () => { state.coreActive = !state.coreActive; if (state.coreActive) state.totalCoreActivations += 1; render(); };
   $("#forge-relic").onclick = forgeRelic;
   $("#language-select").onchange = (e) => { state.language = e.target.value; render(); };
   $("#notation-select").onchange = (e) => { state.notation = e.target.value; render(); };

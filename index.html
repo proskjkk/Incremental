@@ -24,6 +24,7 @@
         <button class="nav-button" data-view="rebirth" type="button"><span>◆</span><b data-t="rebirth">Rebirth</b></button>
         <button class="nav-button" data-view="prestige" type="button"><span>✦</span><b data-t="prestige">Prestige</b></button>
         <button class="nav-button" data-view="trees" type="button"><span>⌘</span><b data-t="trees">Trees</b></button>
+        <button class="nav-button" data-view="achievements" type="button"><span>★</span><b data-t="achievements">Achievements</b></button>
 
         <div id="progressive-nav"></div>
 
@@ -115,6 +116,14 @@
         <div id="tree-container" class="tree-container"></div>
       </section>
 
+      <section class="view" data-view-panel="achievements" hidden>
+        <div class="page-heading">
+          <div><span class="eyebrow">MILESTONES</span><h2 data-t="achievements">Achievements</h2><p data-t="achievementsDesc">Small, permanent rewards for exploring the game's systems. Each unlock adds a flat +1% to your fixed Power multiplier — the reward for playing broadly, not a progression gate.</p></div>
+          <div class="headline-stat"><span data-t="unlocked">Unlocked</span><strong id="achievement-count">0 / 0</strong><br><small id="achievement-bonus">×1 fixed Power</small></div>
+        </div>
+        <div id="achievement-grid" class="prestige-list"></div>
+      </section>
+
       <section class="view" data-view-panel="runes" hidden>
         <div class="page-heading"><div><span class="eyebrow">RANDOMIZED PROGRESSION</span><h2 data-t="runes">Runes</h2><p data-t="runesDesc">Roll duplicate Runes to gain EXP and levels. Runes can affect Power, Rebirths, Prism speed, Core output, surveys, and more.</p></div><div class="headline-stat"><span data-t="rollCost">Roll cost</span><strong id="rune-roll-cost">25 Prisms</strong></div></div>
         <div id="rune-group-tabs" class="tab-row"></div>
@@ -134,8 +143,9 @@
       </section>
 
       <section class="view" data-view-panel="underworld" hidden>
-        <div class="page-heading"><div><span class="eyebrow">WORLD 02</span><h2 data-t="underworld">Underworld</h2><p data-t="underworldDesc">Generate Souls and purchase fixed production upgrades.</p></div><div class="headline-stat"><span data-t="souls">Souls</span><strong id="souls-amount">0</strong></div></div>
+        <div class="page-heading"><div><span class="eyebrow">WORLD 02</span><h2 data-t="underworld">Underworld</h2><p data-t="underworldDesc">Generate Souls and purchase fixed production upgrades. Souls above a safe buffer decay — bank them into the Soul Furnace rather than hoarding.</p></div><div class="headline-stat"><span data-t="souls">Souls</span><strong id="souls-amount">0</strong></div></div>
         <div class="card-grid two" id="underworld-grid"></div>
+        <p id="underworld-note" class="inline-message" style="margin-top:14px;"></p>
       </section>
 
       <section class="view" data-view-panel="exploration" hidden>
@@ -144,8 +154,9 @@
       </section>
 
       <section class="view" data-view-panel="sky" hidden>
-        <div class="page-heading"><div><span class="eyebrow">WORLD 03</span><h2 data-t="skyWorld">Sky World</h2><p data-t="skyDesc">Generate Aether and unlock the first legitimate time-growing Momentum effect.</p></div><div class="headline-stat"><span data-t="aether">Aether</span><strong id="aether-amount">0</strong></div></div>
+        <div class="page-heading"><div><span class="eyebrow">WORLD 03</span><h2 data-t="skyWorld">Sky World</h2><p data-t="skyDesc">Generate Aether and unlock the first legitimate time-growing Momentum effect. Aether output itself scales with your current Momentum charge.</p></div><div class="headline-stat"><span data-t="aether">Aether</span><strong id="aether-amount">0</strong></div></div>
         <div class="card-grid two" id="sky-grid"></div>
+        <p id="sky-note" class="inline-message" style="margin-top:14px;"></p>
       </section>
 
       <section class="view" data-view-panel="relics" hidden>
