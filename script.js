@@ -1,1183 +1,940 @@
 "use strict";
 
-const SAVE_KEY = "the-world-incremental-save";
-const SAVE_VERSION = 3;
-const AUTOSAVE_INTERVAL_MS = 5000;
+const SAVE_KEY = "the-world-incremental-save-v013";
+const SAVE_VERSION = 13;
+const AUTOSAVE_MS = 60_000;
 const MAX_OFFLINE_SECONDS = 28 * 24 * 60 * 60;
-const REBIRTH_BASE = 1000;
-const UNDERWORLD_REQUIREMENT = 100;
+const DEV_PASSWORD = "1234";
 
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => [...document.querySelectorAll(selector)];
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+class BigNum {
+  constructor(m = 0, e = 0) {
+    this.m = Number(m) || 0;
+    this.e = Number(e) || 0;
+    this.normalize();
+  }
 
-const DEFAULT_RUNES = {
-  basic: 0,
-  charged: 0,
-  verdant: 0,
-  infernal: 0,
-  aerial: 0,
-  void: 0,
-  cosmic: 0,
-};
+  static from(value) {
+    if (value instanceof BigNum) return value.clone();
+    if (value && typeof value === "object" && Number.isFinite(value.m) && Number.isFinite(value.e)) return new BigNum(value.m, value.e);
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return new BigNum(1, 999999);
+      if (value === 0) return new BigNum(0, 0);
+      const e = Math.floor(Math.log10(Math.abs(value)));
+      return new BigNum(value / 10 ** e, e);
+    }
+    const text = String(value ?? "0").trim().replaceAll(",", "");
+    if (!text) return new BigNum(0, 0);
+    const match = text.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:e([+-]?\d+))?$/i);
+    if (!match) return new BigNum(0, 0);
+    const coefficient = Number(match[1]);
+    const exponent = Number(match[2] || 0);
+    if (!Number.isFinite(coefficient) || !Number.isFinite(exponent) || coefficient === 0) return new BigNum(0, 0);
+    const shift = Math.floor(Math.log10(Math.abs(coefficient)));
+    return new BigNum(coefficient / 10 ** shift, exponent + shift);
+  }
 
-const DEFAULT_TREE = {
-  root: 0,
-  generator: 0,
-  rebirth: 0,
-  prism: 0,
-  automation: 0,
-  underworld: 0,
-  runeLuck: 0,
-  sky: 0,
-  cosmicRoot: 0,
-};
+  static pow10(exponent) { return new BigNum(1, exponent); }
+  clone() { return new BigNum(this.m, this.e); }
+  normalize() {
+    if (!Number.isFinite(this.m) || !Number.isFinite(this.e)) { this.m = 1; this.e = 999999; return this; }
+    if (this.m === 0) { this.e = 0; return this; }
+    const sign = Math.sign(this.m);
+    this.m = Math.abs(this.m);
+    const shift = Math.floor(Math.log10(this.m));
+    this.m = sign * this.m / 10 ** shift;
+    this.e += shift;
+    if (Math.abs(this.m) < 1) { this.m *= 10; this.e -= 1; }
+    return this;
+  }
+  isZero() { return this.m === 0; }
+  cmp(otherValue) {
+    const other = BigNum.from(otherValue);
+    if (this.m === 0 && other.m === 0) return 0;
+    if (this.m < 0 && other.m >= 0) return -1;
+    if (this.m >= 0 && other.m < 0) return 1;
+    const sign = this.m < 0 ? -1 : 1;
+    if (this.e !== other.e) return this.e > other.e ? sign : -sign;
+    if (this.m === other.m) return 0;
+    return this.m > other.m ? sign : -sign;
+  }
+  gte(v) { return this.cmp(v) >= 0; }
+  gt(v) { return this.cmp(v) > 0; }
+  lte(v) { return this.cmp(v) <= 0; }
+  add(otherValue) {
+    const other = BigNum.from(otherValue);
+    if (this.isZero()) return other;
+    if (other.isZero()) return this.clone();
+    if (this.m < 0 || other.m < 0) return BigNum.from(this.toNumber() + other.toNumber());
+    let a = this, b = other;
+    if (a.e < b.e) [a, b] = [b, a];
+    const diff = a.e - b.e;
+    if (diff > 16) return a.clone();
+    return new BigNum(a.m + b.m * 10 ** -diff, a.e);
+  }
+  sub(otherValue) {
+    const other = BigNum.from(otherValue);
+    if (this.cmp(other) <= 0) return new BigNum(0, 0);
+    const diff = this.e - other.e;
+    if (diff > 16) return this.clone();
+    return new BigNum(this.m - other.m * 10 ** -diff, this.e);
+  }
+  mul(otherValue) {
+    const other = BigNum.from(otherValue);
+    if (this.isZero() || other.isZero()) return new BigNum(0, 0);
+    return new BigNum(this.m * other.m, this.e + other.e);
+  }
+  div(otherValue) {
+    const other = BigNum.from(otherValue);
+    if (other.isZero()) return new BigNum(1, 999999);
+    if (this.isZero()) return new BigNum(0, 0);
+    return new BigNum(this.m / other.m, this.e - other.e);
+  }
+  pow(power) {
+    const p = Number(power);
+    if (this.isZero()) return new BigNum(0, 0);
+    if (!Number.isFinite(p)) return new BigNum(1, 999999);
+    const log = this.log10() * p;
+    const e = Math.floor(log);
+    return new BigNum(10 ** (log - e), e);
+  }
+  sqrt() { return this.pow(0.5); }
+  floor() {
+    if (this.e < 0) return new BigNum(0, 0);
+    if (this.e >= 15) return this.clone();
+    return BigNum.from(Math.floor(this.toNumber()));
+  }
+  log10() { return this.isZero() ? -Infinity : Math.log10(Math.abs(this.m)) + this.e; }
+  toNumber() { return this.e > 308 ? Infinity : this.m * 10 ** this.e; }
+  toJSON() { return { m: this.m, e: this.e }; }
+}
 
-const DEFAULT_STATE = {
-  version: SAVE_VERSION,
-  power: 0,
-  generatorLevel: 0,
-  sparks: 0,
-  sparkCollectorLevel: 0,
-  voltageLevel: 0,
+const bn = (v) => BigNum.from(v);
+const pow10 = (e) => BigNum.pow10(e);
 
-  rebirths: 0,
-  totalRebirths: 0,
-  rebirthPowerLevel: 0,
-  rebirthEfficiencyLevel: 0,
-  rebirthSparkLevel: 0,
-  prismForgeLevel: 0,
-
-  prestigeCount: 0,
-  prisms: 0,
-  runeRolls: 0,
-  runes: { ...DEFAULT_RUNES },
-  tree: { ...DEFAULT_TREE },
-
-  souls: 0,
-  soulHarvesterLevel: 0,
-  soulPowerLevel: 0,
-  embers: 0,
-  emberFurnaceLevel: 0,
-  emberPowerLevel: 0,
-
-  aether: 0,
-  aetherCondenserLevel: 0,
-  celestialPowerLevel: 0,
-  clouds: 0,
-  cloudHarvesterLevel: 0,
-  cloudPowerLevel: 0,
-
-  voidEssence: 0,
-  voidAmplifierLevel: 0,
-  starCores: 0,
-  starCoreLevel: 0,
-  stardust: 0,
-  stardustCollectorLevel: 0,
-  stardustPowerLevel: 0,
-
-  unlocks: { underworld: false },
-  settings: { notation: "standard", language: "en" },
-  lastSavedAt: Date.now(),
-};
-
-let state = structuredClone(DEFAULT_STATE);
-let buyMode = "1";
-let lastTickAt = Date.now();
-let lastRenderedAt = 0;
-let activeLayer = "overworld";
-let selectedTreeNode = "root";
-let toastTimer = null;
-
-const COSTS = {
-  generator: { base: 10, scale: 1.18, currency: "power" },
-  sparkCollector: { base: 250, scale: 1.35, currency: "power" },
-  voltage: { base: 25, scale: 2.5, currency: "sparks" },
-  rebirthPower: { base: 1, scale: 3, currency: "rebirths" },
-  rebirthEfficiency: { base: 5, scale: 4, currency: "rebirths" },
-  rebirthSpark: { base: 10, scale: 3.5, currency: "rebirths" },
-  prismForge: { base: 50, scale: 3, currency: "rebirths" },
-  soulHarvester: { base: 10, scale: 1.7, currency: "souls" },
-  emberFurnace: { base: 100, scale: 2.2, currency: "souls" },
-  soulPower: { base: 50, scale: 3, currency: "souls" },
-  emberPower: { base: 25, scale: 3.5, currency: "embers" },
-  aetherCondenser: { base: 10, scale: 1.8, currency: "aether" },
-  cloudHarvester: { base: 100, scale: 2.25, currency: "aether" },
-  celestialPower: { base: 50, scale: 3.2, currency: "aether" },
-  cloudPower: { base: 25, scale: 3.5, currency: "clouds" },
-  stardustCollector: { base: 10, scale: 1.9, currency: "stardust" },
-  stardustPower: { base: 25, scale: 4, currency: "stardust" },
-  starCore: { base: 1, scale: 2.5, currency: "starCores" },
-};
+const PRESTIGE_REQUIREMENTS = [
+  bn("1e18"), bn("1e75"), bn("1e175"), bn("1e550"), bn("1e700"),
+  bn("1e900"), bn("1e1150"), bn("1e1450"), bn("1e1800"), bn("1e2200"),
+];
 
 const PRESTIGE_REWARDS = [
-  { level: 1, title: "Prismatic Awakening", description: "Unlock Prisms, Runes, and the Prism Tree. Gain 25 Prisms." },
-  { level: 2, title: "Infernal Expansion", description: "Unlock Embers and Infernal Runes. Gain 75 Prisms." },
-  { level: 3, title: "Sky Passage", description: "Unlock Sky World and Aerial Runes. Rebirth upgrades survive Prestige. Gain 150 Prisms." },
-  { level: 4, title: "World Automation", description: "Unlock Clouds and automatic Generator purchasing. Gain 300 Prisms." },
-  { level: 5, title: "Void Contact", description: "Unlock Void Essence and Void Runes. Power multipliers gain an exponent. Gain 600 Prisms." },
-  { level: 6, title: "Stellar Seed", description: "Unlock Star Cores. Prism production is multiplied by 10. Gain 1,000 Prisms." },
-  { level: 7, title: "Leave the World", description: "Unlock Space, Stardust, and Cosmic Runes. All production is multiplied by 1,000. Gain 2,500 Prisms." },
+  "Unlock Sparks and Basic Runes. Grants ×1e5 fixed Power.",
+  "Unlock The Core and Core Shards. Grants ×1e12 fixed Power and a production exponent.",
+  "Unlock Underworld, Souls, and World Survey. Grants ×1e25 fixed Power.",
+  "Unlock Sky World, Aether, and Momentum. Grants ×1e55 fixed Power.",
+  "Unlock Echoes and the Relic Forge. Grants ×1e80 fixed Power.",
+  "Unlock Stardust and the Astral Lab. Grants ×1e120 fixed Power.",
+  "Unlock Space and Star Essence. Grants ×1e180 fixed Power.",
+  "Unlock the Nebula Foundry. Grants ×1e260 fixed Power.",
+  "Unlock the Reality Archive. Grants ×1e380 fixed Power.",
+  "Unlock the Continuum. Grants ×1e600 fixed Power.",
 ];
 
-const RUNE_TYPES = [
-  { id: "basic", name: "Stone Rune", icon: "◆", unlock: 1, weight: 42, effect: "+8% Power per Rune", className: "rune-basic" },
-  { id: "charged", name: "Charged Rune", icon: "⚡", unlock: 1, weight: 28, effect: "+12% Spark and Prism production per Rune", className: "rune-charged" },
-  { id: "verdant", name: "Verdant Rune", icon: "♣", unlock: 1, weight: 20, effect: "+15% Rebirth gain per Rune", className: "rune-verdant" },
-  { id: "infernal", name: "Infernal Rune", icon: "♨", unlock: 2, weight: 12, effect: "+18% Soul and Ember production per Rune", className: "rune-infernal" },
-  { id: "aerial", name: "Aerial Rune", icon: "▲", unlock: 3, weight: 8, effect: "+18% Aether and Cloud production per Rune", className: "rune-aerial" },
-  { id: "void", name: "Void Rune", icon: "◉", unlock: 5, weight: 4, effect: "+25% all production per Rune", className: "rune-void" },
-  { id: "cosmic", name: "Cosmic Rune", icon: "✦", unlock: 7, weight: 1, effect: "×2 all production per Rune", className: "rune-cosmic" },
+const PRESTIGE_LOG_BONUSES = [5, 12, 25, 55, 80, 120, 180, 260, 380, 600];
+const PRESTIGE_EXPONENTS = [1, 1, 1.5, 3, 3.5, 4, 4.7, 5.5, 6.5, 7.8, 9.5];
+
+const RUNE_GROUPS = [
+  { id: "basic", name: "Basic", cost: bn(25), unlock: () => state.prestige >= 1 },
+  { id: "refined", name: "Refined", cost: bn("1e4"), unlock: () => treeLevel("unlockRefined") > 0 },
+  { id: "arcane", name: "Arcane", cost: bn("1e7"), unlock: () => treeLevel("unlockArcane") > 0 },
+  { id: "cosmic", name: "Cosmic", cost: bn("1e10"), unlock: () => treeLevel("unlockCosmic") > 0 },
+  { id: "transcendent", name: "Transcendent", cost: bn("1e14"), unlock: () => treeLevel("unlockTranscendent") > 0 },
 ];
 
-const TREE_NODES = [
-  { id: "root", name: "Prism Root", icon: "◇", x: 50, y: 86, max: 1, baseCost: 5, scale: 1, requires: [], effect: "Unlocks the first branches of the Prism Tree." },
-  { id: "generator", name: "Generator Lattice", icon: "⚡", x: 25, y: 64, max: 10, baseCost: 8, scale: 1.8, requires: ["root"], effect: "+50% Generator output per level." },
-  { id: "rebirth", name: "Rebirth Flow", icon: "R", x: 50, y: 64, max: 10, baseCost: 10, scale: 1.9, requires: ["root"], effect: "+20% Rebirth gain per level." },
-  { id: "prism", name: "Prism Refraction", icon: "◇", x: 75, y: 64, max: 10, baseCost: 12, scale: 2, requires: ["root"], effect: "+40% Prism production per level." },
-  { id: "automation", name: "World Engine", icon: "⌁", x: 14, y: 37, max: 1, baseCost: 80, scale: 1, requires: ["generator"], effect: "Automatically buys Spark Collectors and Voltage upgrades." },
-  { id: "underworld", name: "Soul Conduit", icon: "☠", x: 38, y: 37, max: 8, baseCost: 35, scale: 2.1, requires: ["rebirth"], effect: "+50% Soul and Ember production per level." },
-  { id: "runeLuck", name: "Rune Fortune", icon: "✧", x: 62, y: 37, max: 8, baseCost: 45, scale: 2.2, requires: ["prism"], effect: "Improves the weight of rarer Runes." },
-  { id: "sky", name: "Sky Resonance", icon: "▲", x: 86, y: 37, max: 8, baseCost: 60, scale: 2.25, requires: ["prism"], prestige: 3, effect: "+50% Aether and Cloud production per level." },
-  { id: "cosmicRoot", name: "Cosmic Root", icon: "✦", x: 50, y: 12, max: 1, baseCost: 2500, scale: 1, requires: ["underworld", "runeLuck", "sky"], prestige: 7, effect: "Multiplies all production by 100." },
-];
-
-const INDONESIAN = {
-  worlds: "DUNIA", overworld: "Dunia Atas", underworld: "Dunia Bawah", skyWorld: "Dunia Langit", space: "Luar Angkasa", system: "SISTEM", settings: "Pengaturan",
-  power: "Daya", rebirths: "Rebirth", prestige: "Prestise", sparks: "Percikan", prisms: "Prisma", souls: "Jiwa", embers: "Bara", aether: "Aether", clouds: "Awan", starCores: "Inti Bintang", stardust: "Debu Bintang",
-  overworldDescription: "Kembangkan Daya dan ubah setiap 1.000 Daya menjadi satu Rebirth.", powerPerSecond: "Daya per detik", production: "Produksi", rebirth: "Rebirth", runes: "Rune", prismTree: "Pohon Prisma",
-  multiplier: "Pengali", producer: "PRODUSEN", powerGenerator: "Generator Daya", generatorDescription: "Menambah produksi dasar Daya. Prestise 4 dapat mengotomatiskan pembelian.", output: "Hasil", cost: "Biaya", buyGenerator: "Beli Generator",
-  sparkCollector: "Pengumpul Percikan", sparkDescription: "Menghasilkan Percikan. Percikan yang tersimpan melipatgandakan Daya.", rate: "Laju", buyCollector: "Beli Pengumpul", sparkUpgrade: "UPGRADE PERCIKAN", voltage: "Tegangan", voltageDescription: "Menggandakan produksi Daya setiap level.", effect: "Efek", upgrade: "Tingkatkan",
-  nextUnlock: "BUKA BERIKUTNYA", rebirthReset: "RESET REBIRTH", rebirthFormula: "Setiap 1.000 Daya memberikan satu Rebirth dasar. Daya yang lebih tinggi menumpuk hadiahnya.", currentPower: "Daya saat ini", gainMultiplier: "Pengali perolehan", rebirthNow: "Rebirth Sekarang", spendRebirths: "GUNAKAN REBIRTH", rebirthUpgrades: "Upgrade Rebirth",
-  rebirthCharge: "Muatan Rebirth", rebirthChargeDescription: "Melipatgandakan Daya tiga kali setiap level.", rebirthEfficiency: "Efisiensi Rebirth", rebirthEfficiencyDescription: "Menambah 25% perolehan Rebirth setiap level.", sparkMemory: "Memori Percikan", sparkMemoryDescription: "Menggandakan produksi Percikan setiap level.", prismForge: "Tempa Prisma", prismForgeDescription: "Menghasilkan Prisma secara pasif setelah Prestise 1.",
-  prestigeReset: "RESET PRESTISE", nextRequirement: "Syarat berikutnya", levelsGained: "Level diperoleh", prestigeNow: "Prestise Sekarang", rewardPath: "JALUR HADIAH", prestigeRewards: "Hadiah Prestise", prestigeCurrencies: "MATA UANG PRESTISE", permanentFlows: "Aliran Permanen", prestigeCurrencyLocked: "Capai Prestise 5 untuk membuka Esensi Void.",
-  runeMachine: "MESIN RUNE", rollRunes: "Putar Rune", runeDescription: "Gunakan Prisma untuk memperoleh Rune acak berbobot. Prestise lebih tinggi membuka jenis yang lebih langka.", lastRoll: "Putaran terakhir", noneYet: "Belum ada", runeInfo: "INFO RUNE", runesOwned: "Rune Dimiliki", growWorldTree: "Tumbuhkan Pohon Dunia", treeDescription: "Gunakan Prisma untuk upgrade permanen yang terhubung. Beli node prasyarat terlebih dahulu.",
-  underworldDescription: "Panen Jiwa dan Bara untuk memperkuat semua sistem sebelumnya.", soulsPerSecond: "Jiwa per detik", harvest: "Panen", upgrades: "Upgrade", soulHarvester: "Pemanen Jiwa", soulHarvesterDescription: "Meningkatkan produksi Jiwa pasif.", emberFurnace: "Tungku Bara", emberFurnaceDescription: "Mengubah pertumbuhan Dunia Bawah menjadi Bara pasif.", tormentedPower: "Daya Tersiksa", tormentedPowerDescription: "Melipatgandakan Daya empat kali setiap level.", emberDrive: "Penggerak Bara", emberDriveDescription: "Melipatgandakan Jiwa, Bara, dan Daya tiga kali setiap level.",
-  skyDescription: "Kondensasikan Aether dan kumpulkan Awan untuk pengali surgawi.", aetherPerSecond: "Aether per detik", aetherCondenser: "Kondensor Aether", aetherCondenserDescription: "Meningkatkan produksi Aether pasif.", cloudHarvester: "Pemanen Awan", cloudHarvesterDescription: "Menghasilkan Awan setelah Prestise 4.", celestialPower: "Daya Surgawi", celestialPowerDescription: "Melipatgandakan Daya sepuluh kali setiap level.", stormCircuit: "Sirkuit Badai", stormCircuitDescription: "Melipatgandakan Aether, Awan, dan Daya tiga kali setiap level.",
-  spaceDescription: "Prestise 7 menembus batas planet dan membuka Debu Bintang.", stardustPerSecond: "Debu Bintang per detik", stardustCollector: "Pengumpul Debu Bintang", stardustCollectorDescription: "Meningkatkan produksi Debu Bintang pasif.", spaceEffect: "EFEK ANGKASA", stellarAmplification: "Amplifikasi Bintang", stellarAmplificationDescription: "Debu Bintang dan Inti Bintang melipatgandakan semua produksi dunia sebelumnya.", stellarPower: "Daya Bintang", stellarPowerDescription: "Melipatgandakan semua produksi sepuluh kali setiap level.", coreCompression: "Kompresi Inti", coreCompressionDescription: "Menggandakan laju setiap mata uang per level.",
-  settingsDescription: "Tampilan, bahasa, data simpanan, dan kontrol progres.", display: "TAMPILAN", languageAndNotation: "Bahasa & Notasi", language: "Bahasa", notation: "Notasi angka", saveData: "DATA SIMPANAN", saveManagement: "Pengelolaan Simpanan", saveDescription: "Game menyimpan otomatis setiap lima detik dan mendukung hingga 28 hari perolehan offline.", manualSave: "Simpan Manual", exportSave: "Ekspor Simpanan", importSave: "Impor Simpanan", dangerZone: "ZONA BAHAYA", resetProgress: "Reset Progres", resetDescription: "Hapus permanen semua mata uang, Rune, upgrade, dan dunia yang terbuka di browser ini.", resetEverything: "Reset Semuanya",
-  welcomeBack: "SELAMAT DATANG KEMBALI", offlineProgress: "Progres Offline", continue: "Lanjutkan", confirmReset: "KONFIRMASI RESET", deleteAllProgress: "Hapus semua progres?", deleteWarning: "Tindakan ini tidak dapat dibatalkan kecuali Anda telah mengekspor simpanan.", cancel: "Batal", deleteSave: "Hapus Simpanan", close: "Tutup"
+const RUNE_EFFECT_TYPES = ["power", "generator", "rebirth", "prism", "core", "souls", "aether", "survey", "luck", "copies"];
+const RUNE_NAMES = {
+  basic: ["Pulse", "Current", "Coil", "Beacon", "Circuit", "Anchor", "Relay", "Drive", "Conduit", "Surge"],
+  refined: ["Tempered Pulse", "Silver Current", "Resonant Coil", "Focused Beacon", "Dense Circuit", "Runic Anchor", "Prismatic Relay", "Refined Drive", "Crystal Conduit", "Controlled Surge"],
+  arcane: ["Arcane Pulse", "Mystic Current", "Astral Coil", "Oracle Beacon", "Glyph Circuit", "Soul Anchor", "Ether Relay", "Mana Drive", "Veiled Conduit", "Spell Surge"],
+  cosmic: ["Solar Pulse", "Void Current", "Gravity Coil", "Nova Beacon", "Orbit Circuit", "Stellar Anchor", "Nebula Relay", "Cosmic Drive", "Quasar Conduit", "Supernova Surge"],
+  transcendent: ["Infinite Pulse", "Causal Current", "Eternal Coil", "Origin Beacon", "Reality Circuit", "Continuum Anchor", "Absolute Relay", "Transcendent Drive", "Paradox Conduit", "Final Surge"],
 };
 
-function getText(key, fallback = key) {
-  if (state.settings.language === "id" && INDONESIAN[key]) return INDONESIAN[key];
-  return fallback;
-}
+const RELICS = [
+  { id: "engine", name: "Clockwork Engine", text: "×3 Power per level", weight: 38 },
+  { id: "lens", name: "Prismatic Lens", text: "×2 Prism rate per level", weight: 26 },
+  { id: "compass", name: "Survey Compass", text: "×1.5 Survey speed per level", weight: 18 },
+  { id: "core", name: "Core Crucible", text: "×2 Core output per level", weight: 12 },
+  { id: "crown", name: "Continuum Crown", text: "+0.03 Power exponent per level", weight: 6 },
+];
 
-function formatNumber(value, precision = 2) {
-  if (!Number.isFinite(value)) return "∞";
-  if (value < 0) return `-${formatNumber(-value, precision)}`;
-  if (value === 0) return "0";
-  if (state.settings.notation === "scientific" && value >= 1000) {
-    return value.toExponential(precision).replace("e+", "e");
-  }
-  if (value < 1000) {
-    if (value >= 100) return Math.floor(value).toLocaleString("en-US");
-    if (value >= 10) return value.toFixed(1).replace(/\.0$/, "");
-    return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-  }
-  const suffixes = [
-    [3, "K"], [6, "M"], [9, "B"], [12, "T"], [15, "Qa"], [18, "Qn"],
-    [21, "Sx"], [24, "Sp"], [27, "Oc"], [30, "No"], [33, "Dc"],
-    [36, "Ud"], [39, "Dd"], [42, "Td"], [45, "Qad"], [48, "Qid"],
-    [51, "Sxd"], [54, "Spd"], [57, "Ocd"], [60, "Nod"], [63, "Vg"],
-  ];
-  const exponent = Math.floor(Math.log10(value));
-  const match = [...suffixes].reverse().find(([power]) => exponent >= power);
-  if (!match) return value.toExponential(precision).replace("e+", "e");
-  const [power, suffix] = match;
-  if (power >= 63 && exponent >= 66) return value.toExponential(precision).replace("e+", "e");
-  return `${(value / 10 ** power).toFixed(precision).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}${suffix}`;
-}
+const SURVEYS = [
+  { id: "greenbelt", name: "Greenbelt Circuit", duration: 300, reward: { surveyData: bn(10), prisms: bn(30) }, desc: "A short route that returns Survey Data and Prisms." },
+  { id: "faultline", name: "Faultline Descent", duration: 900, reward: { surveyData: bn(40), coreShards: bn(20) }, desc: "A deep route focused on Core resources." },
+  { id: "cloudring", name: "Cloudring Transect", duration: 1800, reward: { surveyData: bn(120), aether: bn(100) }, desc: "A long aerial route with Aether rewards." },
+  { id: "echozone", name: "Echozone Recovery", duration: 3600, reward: { surveyData: bn(300), echoes: bn(50) }, desc: "Recovers Echoes for the Relic Forge." },
+  { id: "starfall", name: "Starfall Boundary", duration: 7200, reward: { surveyData: bn(800), stardust: bn(200) }, desc: "A late route that returns Stardust." },
+];
 
-function formatDuration(seconds) {
-  const total = Math.max(0, Math.floor(seconds));
-  const days = Math.floor(total / 86400);
-  const hours = Math.floor((total % 86400) / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const parts = [];
-  if (days) parts.push(`${days}d`);
-  if (hours || days) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
-  return parts.join(" ");
-}
+const translations = {
+  en: {},
+  id: { main: "UTAMA", system: "SISTEM", overworld: "Dunia Atas", rebirth: "Kelahiran Kembali", prestige: "Prestise", trees: "Pohon", settings: "Pengaturan", power: "Daya", rebirths: "Rebirth", prisms: "Prisma", powerPerSecond: "Daya per detik", production: "PRODUKSI", generator: "Generator", output: "Produksi", nextCost: "Harga berikutnya", buyOne: "Beli 1", buyMax: "Beli Maks", fixedUpgrades: "UPGRADE TETAP", language: "Bahasa", notation: "Notasi" },
+  zh: { main: "主要", system: "系统", overworld: "主世界", rebirth: "重生", prestige: "威望", trees: "升级树", settings: "设置", power: "能量", rebirths: "重生点", prisms: "棱晶", powerPerSecond: "每秒能量", production: "生产", generator: "发电机", output: "产量", nextCost: "下次费用", buyOne: "购买 1", buyMax: "全部购买", language: "语言", notation: "计数法" },
+  ko: { main: "메인", system: "시스템", overworld: "오버월드", rebirth: "환생", prestige: "프레스티지", trees: "트리", settings: "설정", power: "파워", rebirths: "환생", prisms: "프리즘", powerPerSecond: "초당 파워", production: "생산", generator: "발전기", output: "출력", nextCost: "다음 비용", buyOne: "1개 구매", buyMax: "최대 구매", language: "언어", notation: "표기법" },
+  ja: { main: "メイン", system: "システム", overworld: "オーバーワールド", rebirth: "リバース", prestige: "プレステージ", trees: "ツリー", settings: "設定", power: "パワー", rebirths: "リバース", prisms: "プリズム", powerPerSecond: "毎秒パワー", production: "生産", generator: "ジェネレーター", output: "出力", nextCost: "次のコスト", buyOne: "1個購入", buyMax: "最大購入", language: "言語", notation: "表記" },
+};
 
-function safePow(base, exponent) {
-  const result = Math.pow(base, exponent);
-  return Number.isFinite(result) ? result : Number.MAX_VALUE;
-}
+const bigFields = ["power", "rebirths", "totalRebirths", "prisms", "sparks", "coreShards", "souls", "surveyData", "aether", "echoes", "stardust", "starEssence", "nebulaEssence", "realityFragments", "continuumCores"];
 
-function costAt(config, level) {
-  return config.base * safePow(config.scale, level);
-}
-
-function cumulativeCost(config, level, amount) {
-  if (amount <= 0) return 0;
-  if (config.scale === 1) return config.base * amount;
-  return config.base * safePow(config.scale, level) * ((safePow(config.scale, amount) - 1) / (config.scale - 1));
-}
-
-function maxAffordable(config, level, balance, cap = 100000) {
-  if (balance < costAt(config, level)) return 0;
-  if (config.scale === 1) return Math.min(cap, Math.floor(balance / config.base));
-  const ratio = 1 + (balance * (config.scale - 1)) / (config.base * safePow(config.scale, level));
-  const estimate = Math.max(0, Math.floor(Math.log(ratio) / Math.log(config.scale)));
-  let amount = Math.min(cap, estimate);
-  while (amount > 0 && cumulativeCost(config, level, amount) > balance) amount -= 1;
-  while (amount < cap && cumulativeCost(config, level, amount + 1) <= balance) amount += 1;
-  return amount;
-}
-
-function amountForMode(config, level, balance) {
-  if (buyMode === "max") return maxAffordable(config, level, balance);
-  return buyMode === "10" ? 10 : 1;
-}
-
-function treeLevel(id) {
-  return Number(state.tree[id] || 0);
-}
-
-function runeCount(id) {
-  return Number(state.runes[id] || 0);
-}
-
-function totalRunes() {
-  return Object.values(state.runes).reduce((sum, value) => sum + Number(value || 0), 0);
-}
-
-function getPrestigeRequirement(level = state.prestigeCount) {
-  const exponent = 18 + 5 * level + 2 * level * level;
-  return safePow(10, exponent);
-}
-
-function getPrestigeGainCount() {
-  let gained = 0;
-  let level = state.prestigeCount;
-  while (level < 100 && state.power >= getPrestigeRequirement(level)) {
-    gained += 1;
-    level += 1;
-  }
-  return gained;
-}
-
-function getRebirthGainMultiplier() {
-  return (1 + 0.25 * state.rebirthEfficiencyLevel)
-    * safePow(1.2, treeLevel("rebirth"))
-    * safePow(1.15, runeCount("verdant"));
-}
-
-function getRebirthGain() {
-  const base = Math.floor(state.power / REBIRTH_BASE);
-  return Math.floor(base * getRebirthGainMultiplier());
-}
-
-function getAllProductionMultiplier() {
-  let multiplier = 1;
-  multiplier *= safePow(2, state.starCoreLevel);
-  multiplier *= safePow(10, state.stardustPowerLevel);
-  multiplier *= safePow(1.25, runeCount("void"));
-  multiplier *= safePow(2, runeCount("cosmic"));
-  multiplier *= 1 + Math.sqrt(Math.max(0, state.voidEssence));
-  multiplier *= 1 + Math.log10(state.stardust + 1) * 0.25;
-  multiplier *= 1 + state.starCores * 0.5;
-  if (state.prestigeCount >= 7) multiplier *= 1000;
-  if (treeLevel("cosmicRoot") > 0) multiplier *= 100;
-  return multiplier;
-}
-
-function getPowerBase() {
-  return (1 + state.generatorLevel) * safePow(1.5, treeLevel("generator"));
-}
-
-function getPowerMultiplier() {
-  let multiplier = 1;
-  multiplier *= safePow(2, state.voltageLevel);
-  multiplier *= safePow(3, state.rebirthPowerLevel);
-  multiplier *= safePow(1000, state.prestigeCount);
-  multiplier *= 1 + Math.sqrt(Math.max(0, state.sparks)) / 10;
-  multiplier *= 1 + Math.log10(state.souls + 1);
-  multiplier *= 1 + Math.sqrt(Math.max(0, state.embers)) / 4;
-  multiplier *= 1 + Math.log10(state.aether + 1) * 2;
-  multiplier *= 1 + Math.sqrt(Math.max(0, state.clouds)) / 3;
-  multiplier *= safePow(4, state.soulPowerLevel);
-  multiplier *= safePow(3, state.emberPowerLevel);
-  multiplier *= safePow(10, state.celestialPowerLevel);
-  multiplier *= safePow(3, state.cloudPowerLevel);
-  multiplier *= safePow(1.08, runeCount("basic"));
-  multiplier *= getAllProductionMultiplier();
-  if (state.prestigeCount >= 5) multiplier = safePow(multiplier, 1.05);
-  return multiplier;
-}
-
-function getPowerRate() {
-  return getPowerBase() * getPowerMultiplier();
-}
-
-function getSparkRate() {
-  if (state.sparkCollectorLevel <= 0) return 0;
-  return state.sparkCollectorLevel
-    * safePow(2, state.rebirthSparkLevel)
-    * safePow(1.12, runeCount("charged"))
-    * getAllProductionMultiplier();
-}
-
-function getPrismRate() {
-  if (state.prestigeCount < 1) return 0;
-  const base = 0.01 + state.prismForgeLevel * 0.05;
-  return base
-    * safePow(1.4, treeLevel("prism"))
-    * safePow(1.12, runeCount("charged"))
-    * (state.prestigeCount >= 6 ? 10 : 1)
-    * getAllProductionMultiplier();
-}
-
-function getSoulRate() {
-  if (!state.unlocks.underworld) return 0;
-  return (0.1 + state.soulHarvesterLevel * 0.25)
-    * safePow(1.5, treeLevel("underworld"))
-    * safePow(1.18, runeCount("infernal"))
-    * safePow(3, state.emberPowerLevel)
-    * getAllProductionMultiplier();
-}
-
-function getEmberRate() {
-  if (state.prestigeCount < 2) return 0;
-  return (0.02 + state.emberFurnaceLevel * 0.08)
-    * safePow(1.5, treeLevel("underworld"))
-    * safePow(1.18, runeCount("infernal"))
-    * safePow(3, state.emberPowerLevel)
-    * getAllProductionMultiplier();
-}
-
-function getAetherRate() {
-  if (state.prestigeCount < 3) return 0;
-  return (0.08 + state.aetherCondenserLevel * 0.2)
-    * safePow(1.5, treeLevel("sky"))
-    * safePow(1.18, runeCount("aerial"))
-    * safePow(3, state.cloudPowerLevel)
-    * getAllProductionMultiplier();
-}
-
-function getCloudRate() {
-  if (state.prestigeCount < 4) return 0;
-  return (0.02 + state.cloudHarvesterLevel * 0.08)
-    * safePow(1.5, treeLevel("sky"))
-    * safePow(1.18, runeCount("aerial"))
-    * safePow(3, state.cloudPowerLevel)
-    * getAllProductionMultiplier();
-}
-
-function getVoidRate() {
-  if (state.prestigeCount < 5) return 0;
-  return 0.004 * (state.prestigeCount - 4) * getAllProductionMultiplier();
-}
-
-function getStarCoreRate() {
-  if (state.prestigeCount < 6) return 0;
-  return 0.0015 * (state.prestigeCount - 5) * getAllProductionMultiplier();
-}
-
-function getStardustRate() {
-  if (state.prestigeCount < 7) return 0;
-  return (0.05 + state.stardustCollectorLevel * 0.15) * getAllProductionMultiplier();
-}
-
-function getRuneRollCost(quantity = 1) {
-  const single = 5 + Math.floor(state.runeRolls / 20) * 5;
-  return single * quantity;
-}
-
-function getAvailableRunes() {
-  const luck = treeLevel("runeLuck");
-  return RUNE_TYPES.filter((rune) => state.prestigeCount >= rune.unlock).map((rune) => ({
-    ...rune,
-    adjustedWeight: rune.weight * (1 + luck * 0.12 * Math.max(0, rune.unlock - 1)),
-  }));
-}
-
-function getRuneOdds() {
-  const available = getAvailableRunes();
-  const total = available.reduce((sum, rune) => sum + rune.adjustedWeight, 0);
-  return available.map((rune) => ({ ...rune, chance: total > 0 ? rune.adjustedWeight / total : 0 }));
-}
-
-function getTreeNodeCost(node) {
-  return Math.ceil(node.baseCost * safePow(node.scale, treeLevel(node.id)));
-}
-
-function isTreeNodeUnlocked(node) {
-  if (state.prestigeCount < (node.prestige || 1)) return false;
-  return node.requires.every((required) => treeLevel(required) > 0);
-}
-
-function getRates() {
+function defaultState() {
   return {
-    power: getPowerRate(), sparks: getSparkRate(), prisms: getPrismRate(), souls: getSoulRate(),
-    embers: getEmberRate(), aether: getAetherRate(), clouds: getCloudRate(), voidEssence: getVoidRate(),
-    starCores: getStarCoreRate(), stardust: getStardustRate(),
+    saveVersion: SAVE_VERSION,
+    power: bn(0), rebirths: bn(0), totalRebirths: bn(0), prisms: bn(0), sparks: bn(0), coreShards: bn(0), souls: bn(0), surveyData: bn(0), aether: bn(0), echoes: bn(0), stardust: bn(0), starEssence: bn(0), nebulaEssence: bn(0), realityFragments: bn(0), continuumCores: bn(0),
+    generatorLevel: 0, amplifierLevel: 0,
+    rebirthPowerLevel: 0, rebirthGainLevel: 0, generatorMasteryLevel: 0,
+    prestige: 0,
+    prismProgress: 0,
+    sparkCollectorLevel: 0, sparkPowerLevel: 0,
+    coreActive: false, coreRateLevel: 0, corePowerLevel: 0,
+    soulHarvesterLevel: 0, soulPowerLevel: 0,
+    aetherHarvesterLevel: 0, aetherPowerLevel: 0,
+    stardustCollectorLevel: 0, stardustPowerLevel: 0,
+    starCollectorLevel: 0, starPowerLevel: 0,
+    nebulaCollectorLevel: 0, nebulaPowerLevel: 0,
+    realityCollectorLevel: 0, realityPowerLevel: 0,
+    continuumCollectorLevel: 0, continuumPowerLevel: 0,
+    momentumSeconds: 0,
+    trees: {}, runeCopies: {}, relicLevels: {},
+    activeRuneGroup: "basic", activeTree: "power",
+    activeSurvey: null,
+    notation: "mixed", language: "en", developerUnlocked: false,
+    lastUpdateAt: Date.now(), lastSavedAt: Date.now(),
   };
 }
 
-function normalizeState(raw) {
-  const migrated = { ...structuredClone(DEFAULT_STATE), ...(raw || {}) };
-  migrated.version = SAVE_VERSION;
-  migrated.runes = { ...DEFAULT_RUNES, ...(raw?.runes || {}) };
-  migrated.tree = { ...DEFAULT_TREE, ...(raw?.tree || {}) };
-  migrated.unlocks = { ...DEFAULT_STATE.unlocks, ...(raw?.unlocks || {}) };
-  migrated.settings = { ...DEFAULT_STATE.settings, ...(raw?.settings || {}) };
+let state = defaultState();
+let currentView = "overworld";
+let toastTimer = null;
+let frameHandle = null;
+let lastRenderAt = 0;
 
-  if (raw?.rebirthPoints !== undefined && raw?.rebirths === undefined) migrated.rebirths = Number(raw.rebirthPoints) || 0;
-  if (raw?.rebirthCount !== undefined && raw?.totalRebirths === undefined) migrated.totalRebirths = Number(raw.rebirthCount) || 0;
-  if (raw?.prestigePoints !== undefined && raw?.prisms === undefined) migrated.prisms = (Number(raw.prestigePoints) || 0) * 25;
-  if (raw?.prestigeCount !== undefined) migrated.prestigeCount = Math.max(0, Math.floor(Number(raw.prestigeCount) || 0));
-
-  const numericKeys = Object.keys(DEFAULT_STATE).filter((key) => typeof DEFAULT_STATE[key] === "number");
-  for (const key of numericKeys) {
-    migrated[key] = Math.max(0, Number(migrated[key]) || 0);
-  }
-  migrated.totalRebirths = Math.max(migrated.totalRebirths, migrated.rebirths);
-  migrated.unlocks.underworld = Boolean(migrated.unlocks.underworld || migrated.totalRebirths >= UNDERWORLD_REQUIREMENT);
-  migrated.settings.notation = ["standard", "scientific"].includes(migrated.settings.notation) ? migrated.settings.notation : "standard";
-  migrated.settings.language = ["en", "id"].includes(migrated.settings.language) ? migrated.settings.language : "en";
-  migrated.lastSavedAt = Number(migrated.lastSavedAt) || Date.now();
-  return migrated;
-}
-
-function saveGame(showFeedback = false) {
-  state.version = SAVE_VERSION;
-  state.lastSavedAt = Date.now();
-  localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  const status = $("#save-status");
-  if (status) status.textContent = getText("saved", "Saved");
-  if (showFeedback) showToast(state.settings.language === "id" ? "Progres disimpan." : "Progress saved.");
-}
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 function loadGame() {
-  const saved = localStorage.getItem(SAVE_KEY);
-  if (!saved) {
-    state = structuredClone(DEFAULT_STATE);
-    state.lastSavedAt = Date.now();
-    return null;
-  }
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) return 0;
   try {
-    const parsed = JSON.parse(saved);
-    state = normalizeState(parsed);
-    const now = Date.now();
-    const secondsAway = clamp((now - state.lastSavedAt) / 1000, 0, MAX_OFFLINE_SECONDS);
-    let report = null;
-    if (secondsAway >= 10) report = applyProduction(secondsAway, true);
-    state.lastSavedAt = now;
-    return report;
+    const parsed = JSON.parse(raw);
+    const fresh = defaultState();
+    state = { ...fresh, ...parsed };
+    for (const field of bigFields) state[field] = bn(parsed[field] ?? fresh[field]);
+    state.trees = parsed.trees && typeof parsed.trees === "object" ? parsed.trees : {};
+    state.runeCopies = parsed.runeCopies && typeof parsed.runeCopies === "object" ? parsed.runeCopies : {};
+    state.relicLevels = parsed.relicLevels && typeof parsed.relicLevels === "object" ? parsed.relicLevels : {};
+    state.prestige = Math.max(0, Math.min(10, Math.floor(Number(state.prestige) || 0)));
+    state.lastUpdateAt = Number(parsed.lastUpdateAt || parsed.lastSavedAt || Date.now());
+    const elapsed = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - state.lastUpdateAt) / 1000));
+    processProduction(elapsed);
+    state.lastUpdateAt = Date.now();
+    return elapsed;
   } catch (error) {
-    console.error("Failed to load save:", error);
-    state = structuredClone(DEFAULT_STATE);
-    showToast("Save data was invalid. A new game was started.");
-    return null;
+    console.error("Save load failed", error);
+    state = defaultState();
+    return 0;
   }
 }
 
-function applyProduction(seconds, collectReport = false) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  const rates = getRates();
-  const gains = {};
-  for (const [currency, rate] of Object.entries(rates)) {
-    const gain = rate * seconds;
-    if (gain > 0) {
-      state[currency] += gain;
-      gains[currency] = gain;
-    }
-  }
-  if (state.totalRebirths >= UNDERWORLD_REQUIREMENT) state.unlocks.underworld = true;
-  return collectReport ? { seconds, gains } : null;
+function saveGame(showToast = false) {
+  state.lastSavedAt = Date.now();
+  state.lastUpdateAt = Date.now();
+  localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+  $("#last-save-text").textContent = `Last saved: ${new Date(state.lastSavedAt).toLocaleTimeString()} · Autosave: 1 minute · Offline limit: 28 days.`;
+  if (showToast) showToastMessage("Game saved");
 }
 
-function silentlyCatchUp() {
-  const now = Date.now();
-  const elapsed = clamp((now - lastTickAt) / 1000, 0, MAX_OFFLINE_SECONDS);
-  if (elapsed > 0) applyProduction(elapsed, false);
-  lastTickAt = now;
+function format(value, decimals = 2) {
+  const x = bn(value);
+  if (x.isZero()) return "0";
+  const notation = state.notation;
+  if (notation === "scientific") return `${x.m.toFixed(decimals)}e${x.e}`;
+  if (notation === "mixed" && x.e >= 12) return `${x.m.toFixed(decimals)}e${x.e}`;
+  if (x.e < 6) {
+    const number = x.toNumber();
+    return Number.isFinite(number) ? number.toLocaleString("en-US", { maximumFractionDigits: number < 10 ? 2 : number < 100 ? 1 : 0 }) : `${x.m.toFixed(decimals)}e${x.e}`;
+  }
+  const suffixes = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+  const group = Math.floor(x.e / 3);
+  if (group < suffixes.length && notation === "standard") {
+    const scaled = x.m * 10 ** (x.e - group * 3);
+    return `${scaled.toFixed(scaled < 10 ? 2 : scaled < 100 ? 1 : 0)}${suffixes[group]}`;
+  }
+  return `${x.m.toFixed(decimals)}e${x.e}`;
 }
 
-function purchaseUpgrade(key, levelKey) {
-  const config = COSTS[key];
-  const balance = state[config.currency];
-  const currentLevel = state[levelKey];
-  const requested = amountForMode(config, currentLevel, balance);
-  if (requested <= 0) return;
-  const amount = Math.min(requested, maxAffordable(config, currentLevel, balance, requested));
-  if (amount <= 0) {
-    showToast(state.settings.language === "id" ? "Mata uang tidak cukup." : "Not enough currency.");
-    return;
+function formatDuration(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  const d = Math.floor(seconds / 86400); seconds %= 86400;
+  const h = Math.floor(seconds / 3600); seconds %= 3600;
+  const m = Math.floor(seconds / 60); const s = seconds % 60;
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function treeLevel(id) { return Number(state.trees[id] || 0); }
+function relicLevel(id) { return Number(state.relicLevels[id] || 0); }
+
+function prestigeFixedMultiplier() {
+  let log = 0;
+  for (let i = 0; i < state.prestige; i += 1) log += PRESTIGE_LOG_BONUSES[i];
+  return pow10(log);
+}
+
+function getPowerExponent() {
+  let exponent = PRESTIGE_EXPONENTS[state.prestige] || PRESTIGE_EXPONENTS.at(-1);
+  exponent += treeLevel("powerExponent") * 0.08;
+  exponent += relicLevel("crown") * 0.03;
+  exponent += state.nebulaPowerLevel * 0.04;
+  exponent += state.continuumPowerLevel * 0.08;
+  return exponent;
+}
+
+function getRuneLevelFromCopies(copies) {
+  let level = 0;
+  let spent = 0;
+  let requirement = 1;
+  while (copies >= spent + requirement && level < 1000) {
+    spent += requirement;
+    level += 1;
+    requirement = Math.ceil(requirement * 1.55 + 1);
   }
-  const totalCost = cumulativeCost(config, currentLevel, amount);
-  state[config.currency] = Math.max(0, state[config.currency] - totalCost);
-  state[levelKey] += amount;
-  renderGame();
+  return { level, current: copies - spent, needed: requirement };
+}
+
+function runeAggregate(type) {
+  let total = 0;
+  for (const group of RUNE_GROUPS) {
+    RUNE_NAMES[group.id].forEach((name, index) => {
+      if (RUNE_EFFECT_TYPES[index] !== type) return;
+      const copies = Number(state.runeCopies[`${group.id}:${index}`] || 0);
+      const { level } = getRuneLevelFromCopies(copies);
+      const groupPower = RUNE_GROUPS.findIndex((g) => g.id === group.id) + 1;
+      total += level * groupPower;
+    });
+  }
+  return total;
+}
+
+function fixedPowerMultiplier() {
+  let result = bn(1);
+  result = result.mul(pow10(state.amplifierLevel));
+  result = result.mul(pow10(state.rebirthPowerLevel));
+  result = result.mul(bn(3).pow(state.generatorMasteryLevel));
+  result = result.mul(prestigeFixedMultiplier());
+  result = result.mul(pow10(treeLevel("powerNode") * 2));
+  result = result.mul(pow10(state.sparkPowerLevel * 3));
+  result = result.mul(pow10(state.corePowerLevel * 10));
+  result = result.mul(pow10(state.soulPowerLevel * 15));
+  result = result.mul(pow10(state.aetherPowerLevel * 22));
+  result = result.mul(pow10(state.stardustPowerLevel * 35));
+  result = result.mul(pow10(state.starPowerLevel * 50));
+  result = result.mul(pow10(state.realityPowerLevel * 70));
+  result = result.mul(pow10(state.continuumPowerLevel * 100));
+  result = result.mul(bn(2).pow(runeAggregate("power")));
+  result = result.mul(bn(3).pow(relicLevel("engine")));
+  if (momentumUnlocked()) result = result.mul(getMomentumMultiplier());
+  return result;
+}
+
+function getMomentumMultiplier() {
+  const cap = 100 + treeLevel("momentum") * 100;
+  const progress = Math.min(1, state.momentumSeconds / 3600);
+  return bn(1 + (cap - 1) * progress);
+}
+
+function momentumUnlocked() { return state.prestige >= 4 || treeLevel("momentum") > 0; }
+
+function getGeneratorBase() {
+  const level = Math.max(0, state.generatorLevel);
+  const base = bn(1 + level).pow(1.25);
+  return base.mul(bn(2).pow(runeAggregate("generator")));
+}
+
+function otherProductionFactor() {
+  if (!state.coreActive) return 1;
+  const stabilizer = treeLevel("coreStabilizer");
+  if (stabilizer >= 2) return 0.9;
+  if (stabilizer >= 1) return 0.75;
+  return 0.5;
+}
+
+function getPowerPerSecond() {
+  const raw = getGeneratorBase().mul(fixedPowerMultiplier()).mul(otherProductionFactor());
+  return raw.pow(getPowerExponent());
+}
+
+function getGeneratorCost(level = state.generatorLevel) { return bn(10).mul(bn(1.12).pow(level)); }
+function getGeneratorBulkCost(amount) {
+  if (amount <= 0) return bn(0);
+  const first = getGeneratorCost(state.generatorLevel);
+  const series = bn(1.12).pow(amount).sub(1).div(0.12);
+  return first.mul(series);
+}
+function getGeneratorMaxBuy() {
+  const first = getGeneratorCost();
+  if (!state.power.gte(first)) return 0;
+  const ratio = state.power.mul(0.12).div(first).add(1);
+  const amount = Math.floor(ratio.log10() / Math.log10(1.12));
+  return Math.max(1, Math.min(1_000_000_000, amount));
+}
+
+function getAmplifierCost(level = state.amplifierLevel) { return pow10(6 + level * 3); }
+function getAmplifierMaxBuy() {
+  if (!state.power.gte(getAmplifierCost())) return 0;
+  return Math.max(1, Math.floor((state.power.log10() - 6) / 3) - state.amplifierLevel + 1);
+}
+
+function getRebirthBaseGain() { return state.power.div(1000).floor(); }
+function getRebirthGain() {
+  let gain = getRebirthBaseGain();
+  gain = gain.mul(bn(2).pow(state.rebirthGainLevel));
+  gain = gain.mul(bn(2).pow(treeLevel("rebirthNode")));
+  gain = gain.mul(bn(1.5).pow(runeAggregate("rebirth")));
+  return gain.floor();
+}
+
+function rebirthUpgradeCost(type, level) {
+  if (type === "power") return pow10(1 + level * 3);
+  if (type === "gain") return pow10(2 + level * 4);
+  return pow10(3 + level * 5);
+}
+
+function getPrismRate() {
+  let rate = 1 / 60;
+  rate *= 2 ** treeLevel("prismRate");
+  rate *= 2 ** relicLevel("lens");
+  rate *= 1.25 ** runeAggregate("prism");
+  return rate;
+}
+
+function getCoreRate() {
+  if (!state.coreActive || state.prestige < 2) return 0;
+  return (0.1 + state.coreRateLevel * 0.25) * (2 ** runeAggregate("core")) * (2 ** relicLevel("core"));
+}
+function getSparkRate() { return state.prestige >= 1 ? state.sparkCollectorLevel * (1.5 ** runeAggregate("copies")) : 0; }
+function getSoulRate() { return state.prestige >= 3 ? state.soulHarvesterLevel * (1.5 ** runeAggregate("souls")) : 0; }
+function getAetherRate() { return state.prestige >= 4 ? state.aetherHarvesterLevel * (1.5 ** runeAggregate("aether")) : 0; }
+function getEchoRate() { return state.prestige >= 5 ? 0.05 : 0; }
+function getStardustRate() { return state.prestige >= 6 ? state.stardustCollectorLevel : 0; }
+function getStarRate() { return state.prestige >= 7 ? state.starCollectorLevel : 0; }
+function getNebulaRate() { return state.prestige >= 8 ? state.nebulaCollectorLevel : 0; }
+function getRealityRate() { return state.prestige >= 9 ? state.realityCollectorLevel : 0; }
+function getContinuumRate() { return state.prestige >= 10 ? state.continuumCollectorLevel : 0; }
+
+function processProduction(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return;
+  const factor = otherProductionFactor();
+  state.power = state.power.add(getPowerPerSecond().mul(seconds));
+  state.prisms = state.prisms.add(getPrismRate() * seconds * factor);
+  state.prismProgress = (state.prismProgress + seconds * getPrismRate()) % 1;
+  state.sparks = state.sparks.add(getSparkRate() * seconds * factor);
+  state.coreShards = state.coreShards.add(getCoreRate() * seconds);
+  state.souls = state.souls.add(getSoulRate() * seconds * factor);
+  state.aether = state.aether.add(getAetherRate() * seconds * factor);
+  state.echoes = state.echoes.add(getEchoRate() * seconds * factor);
+  state.stardust = state.stardust.add(getStardustRate() * seconds * factor);
+  state.starEssence = state.starEssence.add(getStarRate() * seconds * factor);
+  state.nebulaEssence = state.nebulaEssence.add(getNebulaRate() * seconds * factor);
+  state.realityFragments = state.realityFragments.add(getRealityRate() * seconds * factor);
+  state.continuumCores = state.continuumCores.add(getContinuumRate() * seconds * factor);
+  if (momentumUnlocked()) state.momentumSeconds = Math.min(3600, state.momentumSeconds + seconds);
+  processSurvey(seconds);
+}
+
+function processSurvey(seconds) {
+  if (!state.activeSurvey) return;
+  state.activeSurvey.remaining -= seconds * (1.5 ** treeLevel("surveySpeed")) * (1.5 ** runeAggregate("survey")) * (1.5 ** relicLevel("compass"));
+  if (state.activeSurvey.remaining > 0) return;
+  const route = SURVEYS.find((x) => x.id === state.activeSurvey.id);
+  if (route) {
+    for (const [key, amount] of Object.entries(route.reward)) state[key] = state[key].add(amount);
+    showToastMessage(`${route.name} completed`);
+  }
+  state.activeSurvey = null;
+}
+
+function buyGenerator(max = false) {
+  const amount = max ? getGeneratorMaxBuy() : 1;
+  if (amount <= 0) return;
+  const cost = getGeneratorBulkCost(amount);
+  if (!state.power.gte(cost)) return;
+  state.power = state.power.sub(cost);
+  state.generatorLevel += amount;
+  render();
+}
+
+function buyAmplifier(max = false) {
+  const amount = max ? getAmplifierMaxBuy() : 1;
+  if (amount <= 0) return;
+  let bought = 0;
+  while (bought < amount && state.power.gte(getAmplifierCost())) {
+    state.power = state.power.sub(getAmplifierCost());
+    state.amplifierLevel += 1;
+    bought += 1;
+  }
+  render();
 }
 
 function performRebirth() {
   const gain = getRebirthGain();
-  if (gain < 1) {
-    showToast(state.settings.language === "id" ? "Butuh setidaknya 1.000 Daya." : "You need at least 1,000 Power.");
-    return;
-  }
-  state.rebirths += gain;
-  state.totalRebirths += gain;
-  state.power = 0;
+  if (gain.lte(0)) return;
+  state.rebirths = state.rebirths.add(gain);
+  state.totalRebirths = state.totalRebirths.add(gain);
+  state.power = bn(0);
   state.generatorLevel = 0;
-  state.sparks = 0;
-  state.sparkCollectorLevel = 0;
-  state.voltageLevel = 0;
-  if (state.totalRebirths >= UNDERWORLD_REQUIREMENT) state.unlocks.underworld = true;
-  showToast(`+${formatNumber(gain)} Rebirth${gain === 1 ? "" : "s"}`);
-  saveGame(false);
-  renderGame();
+  state.amplifierLevel = 0;
+  state.momentumSeconds = 0;
+  showToastMessage(`Gained ${format(gain)} Rebirths`);
+  render();
 }
 
-function prestigePrismReward(fromLevel, toLevel) {
-  let reward = 0;
-  const rewards = { 1: 25, 2: 75, 3: 150, 4: 300, 5: 600, 6: 1000, 7: 2500 };
-  for (let level = fromLevel + 1; level <= toLevel; level += 1) reward += rewards[level] || 1000 * safePow(2, level - 7);
-  return reward;
+function buyRebirthUpgrade(type, max = false) {
+  const levelKey = type === "power" ? "rebirthPowerLevel" : type === "gain" ? "rebirthGainLevel" : "generatorMasteryLevel";
+  let bought = 0;
+  do {
+    const cost = rebirthUpgradeCost(type, state[levelKey]);
+    if (!state.rebirths.gte(cost)) break;
+    state.rebirths = state.rebirths.sub(cost);
+    state[levelKey] += 1;
+    bought += 1;
+  } while (max && bought < 1000);
+  render();
+}
+
+function getPrestigeTarget() {
+  let target = state.prestige;
+  for (let i = state.prestige; i < PRESTIGE_REQUIREMENTS.length; i += 1) {
+    if (state.power.gte(PRESTIGE_REQUIREMENTS[i])) target = i + 1;
+    else break;
+  }
+  return target;
 }
 
 function performPrestige() {
-  const gain = getPrestigeGainCount();
-  if (gain < 1) {
-    showToast(state.settings.language === "id" ? "Syarat Prestise belum tercapai." : "Prestige requirement not reached.");
-    return;
-  }
-  const oldLevel = state.prestigeCount;
-  const newLevel = oldLevel + gain;
-  const prismReward = prestigePrismReward(oldLevel, newLevel);
-  state.prestigeCount = newLevel;
-  state.prisms += prismReward;
-
-  state.power = 0;
-  state.generatorLevel = 0;
-  state.sparks = 0;
-  state.sparkCollectorLevel = 0;
-  state.voltageLevel = 0;
-  state.rebirths = 0;
-  if (newLevel < 3) {
-    state.rebirthPowerLevel = 0;
-    state.rebirthEfficiencyLevel = 0;
-    state.rebirthSparkLevel = 0;
-    state.prismForgeLevel = 0;
-  }
-  state.souls = 0;
-  state.soulHarvesterLevel = 0;
-  state.soulPowerLevel = 0;
-  state.embers = 0;
-  state.emberFurnaceLevel = 0;
-  state.emberPowerLevel = 0;
-  state.aether = 0;
-  state.aetherCondenserLevel = 0;
-  state.celestialPowerLevel = 0;
-  state.clouds = 0;
-  state.cloudHarvesterLevel = 0;
-  state.cloudPowerLevel = 0;
-  state.stardust = 0;
-  state.stardustCollectorLevel = 0;
-  state.stardustPowerLevel = 0;
-
-  showToast(`Prestige +${gain} · +${formatNumber(prismReward)} Prisms`);
-  saveGame(false);
-  renderGame();
+  const target = getPrestigeTarget();
+  if (target <= state.prestige) return;
+  const old = state.prestige;
+  state.prestige = target;
+  state.power = bn(0); state.rebirths = bn(0); state.generatorLevel = 0; state.amplifierLevel = 0;
+  state.rebirthPowerLevel = 0; state.rebirthGainLevel = 0; state.generatorMasteryLevel = 0; state.momentumSeconds = 0;
+  for (let p = old + 1; p <= target; p += 1) applyPrestigeGrant(p);
+  showToastMessage(`Prestige ${target} reached`);
+  render();
 }
 
-function rollRunes(quantity) {
-  if (state.prestigeCount < 1) return;
-  const cost = getRuneRollCost(quantity);
-  if (state.prisms < cost) {
-    showToast(state.settings.language === "id" ? "Prisma tidak cukup." : "Not enough Prisms.");
-    return;
-  }
-  const odds = getRuneOdds();
-  if (!odds.length) return;
-  state.prisms -= cost;
-  const results = {};
-  for (let i = 0; i < quantity; i += 1) {
-    const roll = Math.random();
-    let cumulative = 0;
-    let selected = odds[odds.length - 1];
-    for (const rune of odds) {
-      cumulative += rune.chance;
-      if (roll <= cumulative) {
-        selected = rune;
-        break;
-      }
-    }
-    state.runes[selected.id] += 1;
-    results[selected.id] = (results[selected.id] || 0) + 1;
-  }
-  state.runeRolls += quantity;
-  const entries = Object.entries(results).sort((a, b) => b[1] - a[1]);
-  const best = entries[0];
-  const rune = RUNE_TYPES.find((item) => item.id === best[0]);
-  $("#last-rune-result").innerHTML = `<span class="rune-result-icon ${rune.className}">${rune.icon}</span><div><small>${getText("lastRoll", "Last roll")}</small><strong class="${rune.className}">${rune.name}${best[1] > 1 ? ` ×${best[1]}` : ""}</strong></div>`;
-  showToast(quantity === 1 ? `Rolled ${rune.name}` : `Rolled ${quantity} Runes`);
-  renderGame();
+function applyPrestigeGrant(level) {
+  if (level === 1) state.prisms = state.prisms.add(100);
+  if (level === 2) state.sparks = state.sparks.add(25);
+  if (level === 3) state.coreShards = state.coreShards.add(25);
+  if (level === 4) state.souls = state.souls.add(100);
+  if (level === 5) state.echoes = state.echoes.add(100);
+  if (level === 6) state.stardust = state.stardust.add(100);
+  if (level === 7) state.starEssence = state.starEssence.add(100);
+  if (level === 8) state.nebulaEssence = state.nebulaEssence.add(100);
+  if (level === 9) state.realityFragments = state.realityFragments.add(100);
+  if (level === 10) state.continuumCores = state.continuumCores.add(10);
 }
 
-function purchaseTreeNode(nodeId) {
-  const node = TREE_NODES.find((item) => item.id === nodeId);
-  if (!node) return;
-  selectedTreeNode = nodeId;
-  const level = treeLevel(node.id);
-  if (level >= node.max) {
-    renderTree();
-    return;
+const TREE_DEFS = {
+  power: [
+    { id: "powerNode", name: "Power Conduction", desc: "×100 fixed Power per level.", max: 20, currency: "power", cost: (l) => pow10(8 + l * 8), req: () => true },
+    { id: "rebirthNode", name: "Rebirth Compression", desc: "×2 Rebirth gain per level.", max: 20, currency: "rebirths", cost: (l) => pow10(6 + l * 6), req: () => true },
+    { id: "unlockRefined", name: "Refined Rune Theory", desc: "Unlock the Refined Rune group.", max: 1, currency: "rebirths", cost: () => bn("1e12"), req: () => state.prestige >= 1 },
+    { id: "coreStabilizer", name: "Core Stabilizer", desc: "Reduces the Core penalty from 50% to 25%, then 10%.", max: 2, currency: "coreShards", cost: (l) => bn(100).mul(pow10(l * 3)), req: () => state.prestige >= 2 },
+    { id: "unlockArcane", name: "Arcane Rune Theory", desc: "Unlock the Arcane Rune group.", max: 1, currency: "souls", cost: () => bn("1e6"), req: () => state.prestige >= 3 },
+    { id: "surveySpeed", name: "Survey Logistics", desc: "×1.5 Survey speed per level.", max: 10, currency: "surveyData", cost: (l) => bn(100).mul(pow10(l)), req: () => state.prestige >= 3 },
+    { id: "unlockCosmic", name: "Cosmic Rune Theory", desc: "Unlock the Cosmic Rune group.", max: 1, currency: "stardust", cost: () => bn("1e4"), req: () => state.prestige >= 6 },
+  ],
+  prism: [
+    { id: "prismRate", name: "Prism Refraction", desc: "×2 Prism generation per level.", max: 12, currency: "prisms", cost: (l) => bn(100).mul(pow10(l * 2)), req: () => true },
+    { id: "runeLuck", name: "Rune Fortune", desc: "Improves high-tier Rune roll weights.", max: 10, currency: "prisms", cost: (l) => bn("1e4").mul(pow10(l * 3)), req: () => state.prestige >= 1 },
+    { id: "duplicateChance", name: "Rune Echo", desc: "Chance for an extra Rune copy per roll.", max: 10, currency: "prisms", cost: (l) => bn("1e6").mul(pow10(l * 3)), req: () => state.prestige >= 1 },
+    { id: "momentum", name: "Momentum Reservoir", desc: "Unlocks a time-growing multiplier capped at ×100, plus ×100 cap per level.", max: 5, currency: "prisms", cost: (l) => pow10(8 + l * 4), req: () => state.prestige >= 3 },
+    { id: "unlockPowerPrism", name: "Power Prism Gateway", desc: "Unlock the Power Prism Tree.", max: 1, currency: "prisms", cost: () => bn("1e9"), req: () => state.prestige >= 6 },
+  ],
+  powerPrism: [
+    { id: "powerExponent", name: "Prismatic Exponent", desc: "+0.08 Power exponent per level.", max: 10, currency: "prisms", cost: (l) => pow10(12 + l * 5), req: () => treeLevel("unlockPowerPrism") > 0 },
+    { id: "unlockTranscendent", name: "Transcendent Rune Theory", desc: "Unlock the Transcendent Rune group.", max: 1, currency: "starEssence", cost: () => bn("1e5"), req: () => treeLevel("unlockPowerPrism") > 0 && state.prestige >= 7 },
+    { id: "continuumLink", name: "Continuum Link", desc: "×1e50 fixed Power per level.", max: 10, currency: "continuumCores", cost: (l) => bn(1 + l * 2), req: () => state.prestige >= 10 },
+  ],
+};
+
+function buyTreeNode(id) {
+  const node = Object.values(TREE_DEFS).flat().find((x) => x.id === id);
+  if (!node || !node.req()) return;
+  const level = treeLevel(id);
+  if (level >= node.max) return;
+  const cost = node.cost(level);
+  if (!state[node.currency].gte(cost)) return;
+  state[node.currency] = state[node.currency].sub(cost);
+  state.trees[id] = level + 1;
+  render();
+}
+
+function getRuneLuck() { return treeLevel("runeLuck") * 0.03 + runeAggregate("luck") * 0.01; }
+function rollRune(count) {
+  const group = RUNE_GROUPS.find((g) => g.id === state.activeRuneGroup && g.unlock());
+  if (!group) return;
+  const totalCost = group.cost.mul(count);
+  if (!state.prisms.gte(totalCost)) return;
+  state.prisms = state.prisms.sub(totalCost);
+  const results = [];
+  for (let roll = 0; roll < count; roll += 1) {
+    const luck = getRuneLuck();
+    const weights = RUNE_NAMES[group.id].map((_, index) => Math.max(0.2, 10 - index * 0.75 + luck * index * 2));
+    let random = Math.random() * weights.reduce((a, b) => a + b, 0);
+    let chosen = 0;
+    for (let i = 0; i < weights.length; i += 1) { random -= weights[i]; if (random <= 0) { chosen = i; break; } }
+    const key = `${group.id}:${chosen}`;
+    state.runeCopies[key] = Number(state.runeCopies[key] || 0) + 1;
+    if (Math.random() < treeLevel("duplicateChance") * 0.03 + runeAggregate("copies") * 0.005) state.runeCopies[key] += 1;
+    results.push(RUNE_NAMES[group.id][chosen]);
   }
-  if (!isTreeNodeUnlocked(node)) {
-    showToast(state.settings.language === "id" ? "Beli node prasyarat terlebih dahulu." : "Purchase the prerequisite nodes first.");
-    renderTree();
-    return;
-  }
-  const cost = getTreeNodeCost(node);
-  if (state.prisms < cost) {
-    showToast(state.settings.language === "id" ? "Prisma tidak cukup." : "Not enough Prisms.");
-    renderTree();
-    return;
-  }
-  state.prisms -= cost;
-  state.tree[node.id] += 1;
-  showToast(`${node.name} ${node.max > 1 ? `Lv. ${state.tree[node.id]}` : "unlocked"}`);
-  renderGame();
+  $("#rune-roll-result").textContent = count === 1 ? `Rolled ${results[0]}` : `Rolled ${count} Runes`;
+  render();
 }
 
-function runAutomation() {
-  if (state.prestigeCount >= 4) {
-    const config = COSTS.generator;
-    const amount = maxAffordable(config, state.generatorLevel, state.power, 1000);
-    if (amount > 0) {
-      state.power -= cumulativeCost(config, state.generatorLevel, amount);
-      state.generatorLevel += amount;
-    }
-  }
-  if (treeLevel("automation") > 0) {
-    const sparkConfig = COSTS.sparkCollector;
-    const sparkAmount = maxAffordable(sparkConfig, state.sparkCollectorLevel, state.power, 100);
-    if (sparkAmount > 0) {
-      state.power -= cumulativeCost(sparkConfig, state.sparkCollectorLevel, sparkAmount);
-      state.sparkCollectorLevel += sparkAmount;
-    }
-    const voltageConfig = COSTS.voltage;
-    const voltageAmount = maxAffordable(voltageConfig, state.voltageLevel, state.sparks, 100);
-    if (voltageAmount > 0) {
-      state.sparks -= cumulativeCost(voltageConfig, state.voltageLevel, voltageAmount);
-      state.voltageLevel += voltageAmount;
-    }
-  }
+function forgeRelic() {
+  const cost = bn(100).mul(pow10(Object.values(state.relicLevels).reduce((a, b) => a + Number(b || 0), 0) * 0.25));
+  if (!state.echoes.gte(cost)) return;
+  state.echoes = state.echoes.sub(cost);
+  const luck = treeLevel("relicLuck") * 0.03;
+  const adjusted = RELICS.map((r, i) => Math.max(1, r.weight + luck * i * 10));
+  let random = Math.random() * adjusted.reduce((a, b) => a + b, 0);
+  let relic = RELICS[0];
+  for (let i = 0; i < adjusted.length; i += 1) { random -= adjusted[i]; if (random <= 0) { relic = RELICS[i]; break; } }
+  state.relicLevels[relic.id] = relicLevel(relic.id) + 1;
+  $("#relic-result").textContent = `Forged ${relic.name}`;
+  render();
 }
 
-function setText(id, value) {
-  const element = $(`#${id}`);
-  if (element) element.textContent = value;
+function startSurvey(id) {
+  if (state.activeSurvey) return;
+  const route = SURVEYS.find((x) => x.id === id);
+  if (!route) return;
+  state.activeSurvey = { id, remaining: route.duration };
+  render();
 }
 
-function setHidden(selector, hidden) {
-  const element = typeof selector === "string" ? $(selector) : selector;
-  if (element) element.hidden = hidden;
+function buyWorldUpgrade(system, type) {
+  const defs = {
+    spark: { producerKey: "sparkCollectorLevel", producerCurrency: "power", producerCost: (l) => pow10(20 + l * 4), powerKey: "sparkPowerLevel", powerCurrency: "sparks", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    core: { producerKey: "coreRateLevel", producerCurrency: "power", producerCost: (l) => pow10(90 + l * 8), powerKey: "corePowerLevel", powerCurrency: "coreShards", powerCost: (l) => bn(10).mul(pow10(l * 2)) },
+    soul: { producerKey: "soulHarvesterLevel", producerCurrency: "rebirths", producerCost: (l) => pow10(50 + l * 6), powerKey: "soulPowerLevel", powerCurrency: "souls", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    aether: { producerKey: "aetherHarvesterLevel", producerCurrency: "souls", producerCost: (l) => pow10(8 + l * 4), powerKey: "aetherPowerLevel", powerCurrency: "aether", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    stardust: { producerKey: "stardustCollectorLevel", producerCurrency: "aether", producerCost: (l) => pow10(10 + l * 4), powerKey: "stardustPowerLevel", powerCurrency: "stardust", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    star: { producerKey: "starCollectorLevel", producerCurrency: "stardust", producerCost: (l) => pow10(6 + l * 3), powerKey: "starPowerLevel", powerCurrency: "starEssence", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    nebula: { producerKey: "nebulaCollectorLevel", producerCurrency: "starEssence", producerCost: (l) => pow10(6 + l * 3), powerKey: "nebulaPowerLevel", powerCurrency: "nebulaEssence", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    reality: { producerKey: "realityCollectorLevel", producerCurrency: "nebulaEssence", producerCost: (l) => pow10(6 + l * 3), powerKey: "realityPowerLevel", powerCurrency: "realityFragments", powerCost: (l) => bn(100).mul(pow10(l * 2)) },
+    continuum: { producerKey: "continuumCollectorLevel", producerCurrency: "realityFragments", producerCost: (l) => pow10(6 + l * 3), powerKey: "continuumPowerLevel", powerCurrency: "continuumCores", powerCost: (l) => bn(1 + l * 2) },
+  };
+  const def = defs[system]; if (!def) return;
+  const key = type === "producer" ? def.producerKey : def.powerKey;
+  const currency = type === "producer" ? def.producerCurrency : def.powerCurrency;
+  const cost = (type === "producer" ? def.producerCost : def.powerCost)(state[key]);
+  if (!state[currency].gte(cost)) return;
+  state[currency] = state[currency].sub(cost);
+  state[key] += 1;
+  render();
 }
 
-function setDisabled(id, disabled) {
-  const element = $(`#${id}`);
-  if (element) element.disabled = disabled;
+function genericWorldCards(container, system, currency, producerName, powerName, producerLevelKey, powerLevelKey, producerCost, powerCost, producerEffect, powerEffect) {
+  container.innerHTML = `
+    <article class="game-card"><div class="card-icon">＋</div><div class="card-content"><div class="card-title-row"><h3>${producerName}</h3><span class="level-pill">Lv. ${state[producerLevelKey]}</span></div><p>Generates ${currency} continuously through an explicit producer.</p><div class="stat-row"><span><small>Rate</small><b>${producerEffect}</b></span><span><small>Cost</small><b>${format(producerCost)} ${currency === "Sparks" ? "Power" : getProducerCostCurrency(system)}</b></span></div><div class="button-row"><button class="action-button" data-world-buy="${system}:producer">Buy 1</button></div></div></article>
+    <article class="game-card"><div class="card-icon">×</div><div class="card-content"><div class="card-title-row"><h3>${powerName}</h3><span class="level-pill">Lv. ${state[powerLevelKey]}</span></div><p>Purchases a fixed Power effect. Currency balances alone provide no multiplier.</p><div class="stat-row"><span><small>Effect</small><b>${powerEffect}</b></span><span><small>Cost</small><b>${format(powerCost)} ${currency}</b></span></div><div class="button-row"><button class="action-button" data-world-buy="${system}:power">Buy 1</button></div></div></article>`;
 }
 
-function getPurchaseInfo(key, levelKey) {
-  const config = COSTS[key];
-  const level = state[levelKey];
-  const balance = state[config.currency];
-  const requested = amountForMode(config, level, balance);
-  const amount = Math.min(requested, maxAffordable(config, level, balance, requested || 1));
-  const shownAmount = buyMode === "max" ? amount : requested;
-  const cost = shownAmount > 0 ? cumulativeCost(config, level, shownAmount) : costAt(config, level);
-  return { config, level, balance, amount, shownAmount, cost };
+function getProducerCostCurrency(system) {
+  return { core: "Power", soul: "Rebirths", aether: "Souls", stardust: "Aether", star: "Stardust", nebula: "Star Essence", reality: "Nebula Essence", continuum: "Reality Fragments" }[system] || "Power";
 }
 
-function renderPurchase(key, levelKey, options) {
-  const info = getPurchaseInfo(key, levelKey);
-  const currencyName = options.currencyName || options.currency;
-  setText(options.levelId, `Lv. ${formatNumber(state[levelKey], 0)}`);
-  setText(options.costId, `${formatNumber(info.cost)} ${currencyName}`);
-  if (options.effectId && options.effect) setText(options.effectId, options.effect());
-  setDisabled(options.buttonId, info.amount <= 0);
-  if (options.previewId) {
-    const label = buyMode === "max" ? "MAX" : info.shownAmount;
-    setText(options.previewId, info.amount > 0
-      ? `Buy ${label} for ${formatNumber(info.cost)} ${currencyName}.`
-      : `Need ${formatNumber(costAt(info.config, info.level))} ${currencyName}.`);
-  }
+function showView(view) {
+  currentView = view;
+  $$("[data-view-panel]").forEach((panel) => { const active = panel.dataset.viewPanel === view; panel.hidden = !active; panel.classList.toggle("active", active); });
+  $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  render();
 }
 
-function renderHeader(rates) {
-  setText("header-power", formatNumber(state.power));
-  setText("header-rebirths", formatNumber(state.rebirths));
-  setText("header-prestige", formatNumber(state.prestigeCount, 0));
-  setText("header-sparks", formatNumber(state.sparks));
-  setText("header-prisms", formatNumber(state.prisms));
-  setText("header-souls", formatNumber(state.souls));
-  setText("header-embers", formatNumber(state.embers));
-  setText("header-aether", formatNumber(state.aether));
-  setText("header-clouds", formatNumber(state.clouds));
-  setText("header-star-cores", formatNumber(state.starCores));
-  setText("header-stardust", formatNumber(state.stardust));
-
-  setHidden('[data-header-resource="prisms"]', state.prestigeCount < 1);
-  setHidden('[data-header-resource="souls"]', !state.unlocks.underworld);
-  setHidden('[data-header-resource="embers"]', state.prestigeCount < 2);
-  setHidden('[data-header-resource="aether"]', state.prestigeCount < 3);
-  setHidden('[data-header-resource="clouds"]', state.prestigeCount < 4);
-  setHidden('[data-header-resource="starCores"]', state.prestigeCount < 6);
-  setHidden('[data-header-resource="stardust"]', state.prestigeCount < 7);
-
-  setText("world-power-rate", `${formatNumber(rates.power)}/s`);
-  setText("world-soul-rate", `${formatNumber(rates.souls)}/s`);
-  setText("world-aether-rate", `${formatNumber(rates.aether)}/s`);
-  setText("world-stardust-rate", `${formatNumber(rates.stardust)}/s`);
+function showToastMessage(message) {
+  const toast = $("#toast"); toast.textContent = message; toast.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
 }
 
 function renderNavigation() {
-  const underworldUnlocked = state.unlocks.underworld;
-  const skyUnlocked = state.prestigeCount >= 3;
-  const spaceUnlocked = state.prestigeCount >= 7;
-  const navStates = [
-    ["#underworld-nav", underworldUnlocked], ["#sky-nav", skyUnlocked], ["#space-nav", spaceUnlocked],
-  ];
-  for (const [selector, unlocked] of navStates) {
-    const button = $(selector);
-    if (!button) continue;
-    button.disabled = !unlocked;
-    button.classList.toggle("locked", !unlocked);
-  }
-  if ((activeLayer === "underworld" && !underworldUnlocked) || (activeLayer === "sky" && !skyUnlocked) || (activeLayer === "space" && !spaceUnlocked)) {
-    switchLayer("overworld");
-  }
-  setDisabled("runes-tab-button", state.prestigeCount < 1);
-  setDisabled("tree-tab-button", state.prestigeCount < 1);
-  $("#runes-tab-button")?.classList.toggle("locked-tab", state.prestigeCount < 1);
-  $("#tree-tab-button")?.classList.toggle("locked-tab", state.prestigeCount < 1);
+  const entries = [];
+  if (state.prestige >= 1) entries.push(["sparks", "ϟ", "Sparks"], ["runes", "◇", "Runes"]);
+  if (state.prestige >= 2) entries.push(["core", "⬟", "The Core"]);
+  if (state.prestige >= 3) entries.push(["underworld", "◆", "Underworld"], ["exploration", "⌖", "World Survey"]);
+  if (state.prestige >= 4) entries.push(["sky", "▲", "Sky World"]);
+  if (state.prestige >= 5) entries.push(["relics", "◈", "Relic Forge"]);
+  if (state.prestige >= 6) entries.push(["astral", "✧", "Astral Lab"]);
+  if (state.prestige >= 7) entries.push(["space", "✦", "Space"]);
+  if (state.prestige >= 8) entries.push(["nebula", "☁", "Nebula Foundry"]);
+  if (state.prestige >= 9) entries.push(["reality", "▣", "Reality Archive"]);
+  if (state.prestige >= 10) entries.push(["continuum", "∞", "Continuum"]);
+  $("#progressive-nav").innerHTML = entries.length ? `<p class="nav-label">UNLOCKED SYSTEMS</p>${entries.map(([view, icon, name]) => `<button class="nav-button ${currentView === view ? "active" : ""}" data-view="${view}" type="button"><span>${icon}</span><b>${name}</b></button>`).join("")}` : "";
+  $$(".nav-button").forEach((button) => button.onclick = () => showView(button.dataset.view));
+  const availableViews = new Set(["overworld", "rebirth", "prestige", "trees", "settings", ...entries.map((x) => x[0])]);
+  if (!availableViews.has(currentView)) showView("overworld");
 }
 
-function renderProduction(rates) {
-  setText("power-amount", formatNumber(state.power));
-  setText("power-rate", `+${formatNumber(rates.power)} Power/s`);
-  setText("power-multiplier", `×${formatNumber(getPowerMultiplier())}`);
-
-  renderPurchase("generator", "generatorLevel", {
-    levelId: "generator-level", costId: "generator-cost", buttonId: "buy-generator-button", previewId: "generator-preview", currencyName: "Power",
-    effectId: "generator-output", effect: () => `+${formatNumber(state.generatorLevel * safePow(1.5, treeLevel("generator")) * getPowerMultiplier())}/s`,
-  });
-  renderPurchase("sparkCollector", "sparkCollectorLevel", {
-    levelId: "spark-collector-level", costId: "spark-collector-cost", buttonId: "buy-spark-collector-button", previewId: "spark-collector-preview", currencyName: "Power",
-    effectId: "spark-rate", effect: () => `+${formatNumber(rates.sparks)}/s`,
-  });
-  renderPurchase("voltage", "voltageLevel", {
-    levelId: "voltage-level", costId: "voltage-cost", buttonId: "buy-voltage-button", currencyName: "Sparks",
-    effectId: "voltage-effect", effect: () => `×${formatNumber(safePow(2, state.voltageLevel))} Power`,
-  });
-
-  let title = "Underworld";
-  let description = "Earn 100 total Rebirths to open the Underworld.";
-  let current = Math.min(state.totalRebirths, UNDERWORLD_REQUIREMENT);
-  let required = UNDERWORLD_REQUIREMENT;
-  let progressLabel = `${formatNumber(state.totalRebirths)} / ${formatNumber(required)} total Rebirths`;
-  if (state.unlocks.underworld && state.prestigeCount < 1) {
-    title = "Prestige 1";
-    description = "Reach 1 Qn Power to unlock Prisms, Runes, and the Prism Tree.";
-    current = Math.min(state.power, getPrestigeRequirement(0));
-    required = getPrestigeRequirement(0);
-    progressLabel = `${formatNumber(state.power)} / ${formatNumber(required)} Power`;
-  } else if (state.prestigeCount >= 1 && state.prestigeCount < 3) {
-    title = "Sky World";
-    description = "Reach Prestige 3 to unlock Aether and the Sky World.";
-    current = state.prestigeCount;
-    required = 3;
-    progressLabel = `${state.prestigeCount} / 3 Prestige`;
-  } else if (state.prestigeCount >= 3 && state.prestigeCount < 7) {
-    title = "Space";
-    description = "Reach Prestige 7 to leave the world and unlock Stardust.";
-    current = state.prestigeCount;
-    required = 7;
-    progressLabel = `${state.prestigeCount} / 7 Prestige`;
-  } else if (state.prestigeCount >= 7) {
-    title = "Space Unlocked";
-    description = "The planetary boundary has been broken.";
-    current = 1;
-    required = 1;
-    progressLabel = "Complete";
-  }
-  setText("next-unlock-title", title);
-  setText("next-unlock-description", description);
-  setText("next-unlock-progress", progressLabel);
-  const percentage = required > 0 ? clamp((current / required) * 100, 0, 100) : 0;
-  $("#next-unlock-bar").style.width = `${percentage}%`;
+function renderTop() {
+  $("#top-power").textContent = format(state.power);
+  $("#top-rebirths").textContent = format(state.rebirths);
+  $("#top-prestige").textContent = `${state.prestige} / 10`;
+  $("#top-prisms").textContent = format(state.prisms);
 }
 
-function renderRebirth(rates) {
+function renderOverworld() {
+  const pps = getPowerPerSecond();
+  $("#power-amount").textContent = format(state.power);
+  $("#power-rate").textContent = `${format(pps)}/s`;
+  $("#power-multiplier").textContent = `Fixed multiplier ×${format(fixedPowerMultiplier())} · exponent ^${getPowerExponent().toFixed(2)}`;
+  $("#prism-amount").textContent = format(state.prisms);
+  const secondsPerPrism = 1 / getPrismRate();
+  const remaining = Math.max(0, secondsPerPrism * (1 - state.prismProgress));
+  $("#prism-timer").textContent = `Next base Prism in ${Math.ceil(remaining)}s · ${format(getPrismRate(), 3)}/s`;
+  $("#generator-level").textContent = `Lv. ${state.generatorLevel.toLocaleString()}`;
+  $("#generator-output").textContent = `+${format(getGeneratorBase())} base/s`;
+  $("#generator-cost").textContent = `${format(getGeneratorCost())} Power`;
+  $("#buy-generator").disabled = !state.power.gte(getGeneratorCost());
+  $("#buy-max-generator").disabled = getGeneratorMaxBuy() <= 0;
+  $("#amplifier-level").textContent = `Lv. ${state.amplifierLevel}`;
+  $("#amplifier-effect").textContent = `×${format(pow10(state.amplifierLevel))}`;
+  $("#amplifier-cost").textContent = `${format(getAmplifierCost())} Power`;
+  $("#buy-amplifier").disabled = !state.power.gte(getAmplifierCost());
+  $("#buy-max-amplifier").disabled = getAmplifierMaxBuy() <= 0;
+}
+
+function renderRebirth() {
   const gain = getRebirthGain();
-  setText("rebirth-gain", formatNumber(gain));
-  setText("rebirth-current-power", formatNumber(state.power));
-  setText("rebirth-gain-multiplier", `×${formatNumber(getRebirthGainMultiplier())}`);
-  setText("rebirth-balance", formatNumber(state.rebirths));
-  setDisabled("rebirth-button", gain < 1);
-
-  renderPurchase("rebirthPower", "rebirthPowerLevel", {
-    levelId: "rebirth-power-level", costId: "rebirth-power-cost", buttonId: "buy-rebirth-power-button", currencyName: "R",
-    effectId: "rebirth-power-effect", effect: () => `×${formatNumber(safePow(3, state.rebirthPowerLevel))}`,
-  });
-  renderPurchase("rebirthEfficiency", "rebirthEfficiencyLevel", {
-    levelId: "rebirth-efficiency-level", costId: "rebirth-efficiency-cost", buttonId: "buy-rebirth-efficiency-button", currencyName: "R",
-    effectId: "rebirth-efficiency-effect", effect: () => `×${formatNumber(1 + state.rebirthEfficiencyLevel * 0.25)}`,
-  });
-  renderPurchase("rebirthSpark", "rebirthSparkLevel", {
-    levelId: "rebirth-spark-level", costId: "rebirth-spark-cost", buttonId: "buy-rebirth-spark-button", currencyName: "R",
-    effectId: "rebirth-spark-effect", effect: () => `×${formatNumber(safePow(2, state.rebirthSparkLevel))}`,
-  });
-  setHidden("#prism-forge-card", state.prestigeCount < 1);
-  if (state.prestigeCount >= 1) {
-    renderPurchase("prismForge", "prismForgeLevel", {
-      levelId: "prism-forge-level", costId: "prism-forge-cost", buttonId: "buy-prism-forge-button", currencyName: "R",
-      effectId: "prism-forge-effect", effect: () => `+${formatNumber(rates.prisms)}/s`,
-    });
-  }
+  $("#rebirth-gain").textContent = format(gain);
+  $("#rebirth-preview").textContent = `${format(gain)} Rebirths`;
+  $("#rebirth-button").disabled = gain.lte(0);
+  const defs = [
+    ["power", "Rebirth Conductor", "×10 fixed Power per level.", state.rebirthPowerLevel],
+    ["gain", "Rebirth Compression", "×2 Rebirth gain per level.", state.rebirthGainLevel],
+    ["mastery", "Generator Mastery", "×3 Generator output per level.", state.generatorMasteryLevel],
+  ];
+  $("#rebirth-upgrade-grid").innerHTML = defs.map(([id, name, desc, level]) => {
+    const cost = rebirthUpgradeCost(id, level);
+    return `<article class="game-card"><div class="card-content"><div class="card-title-row"><h3>${name}</h3><span class="level-pill">Lv. ${level}</span></div><p>${desc}</p><div class="stat-row"><span><small>Current</small><b>${id === "power" ? `×${format(pow10(level))}` : id === "gain" ? `×${format(bn(2).pow(level))}` : `×${format(bn(3).pow(level))}`}</b></span><span><small>Cost</small><b>${format(cost)} Rebirths</b></span></div><div class="button-row"><button class="action-button" data-rebirth-upgrade="${id}:one">Buy 1</button><button class="action-button secondary" data-rebirth-upgrade="${id}:max">Buy Max</button></div></div></article>`;
+  }).join("");
+  $$('[data-rebirth-upgrade]').forEach((button) => button.onclick = () => { const [id, mode] = button.dataset.rebirthUpgrade.split(":"); buyRebirthUpgrade(id, mode === "max"); });
 }
 
 function renderPrestige() {
-  const gain = getPrestigeGainCount();
-  const nextRequirement = getPrestigeRequirement(state.prestigeCount);
-  setText("prestige-current-level", formatNumber(state.prestigeCount, 0));
-  setText("prestige-potential", `+${gain}`);
-  setText("prestige-next-requirement", `${formatNumber(nextRequirement)} Power`);
-  setText("prestige-levels-gained", formatNumber(gain, 0));
-  setDisabled("prestige-button", gain < 1);
-  setText("prestige-gain-copy", gain > 0
-    ? `Prestige now to gain ${gain} permanent level${gain === 1 ? "" : "s"}.`
-    : `Reach ${formatNumber(nextRequirement)} Power for Prestige ${state.prestigeCount + 1}.`);
+  const target = getPrestigeTarget();
+  $("#prestige-level").textContent = `${state.prestige} / 10`;
+  $("#prestige-preview").textContent = target > state.prestige ? `Advance to Prestige ${target}` : "No Prestige available";
+  const next = state.prestige < 10 ? PRESTIGE_REQUIREMENTS[state.prestige] : null;
+  $("#prestige-next-requirement").textContent = next ? `Prestige ${state.prestige + 1} requires ${format(next)} Power.` : "Prestige 10 is the current maximum.";
+  $("#prestige-button").disabled = target <= state.prestige;
+  $("#prestige-reward-list").innerHTML = PRESTIGE_REQUIREMENTS.map((req, index) => `<article class="prestige-item ${state.prestige > index ? "unlocked" : state.prestige === index ? "current" : ""}"><div class="prestige-number">P${index + 1}</div><div><b>${format(req)} Power</b><small>${state.prestige > index ? " · Unlocked" : ""}</small></div><p>${PRESTIGE_REWARDS[index]}</p></article>`).join("");
+}
 
-  $("#prestige-reward-list").innerHTML = PRESTIGE_REWARDS.map((reward) => `
-    <div class="reward-item ${state.prestigeCount >= reward.level ? "unlocked" : ""}">
-      <div class="reward-level">P${reward.level}</div>
-      <div><h4>${reward.title}</h4><p>${reward.description}</p></div>
-    </div>`).join("");
-
-  const flows = [];
-  if (state.prestigeCount >= 5) {
-    flows.push(`<div class="prestige-flow-card"><h4>Void Essence</h4><p>Generated automatically from Prestige 5. It strengthens every production rate.</p><strong>${formatNumber(state.voidEssence)} · +${formatNumber(getVoidRate())}/s</strong></div>`);
+function renderTrees() {
+  $$('[data-tree-tab]').forEach((button) => button.classList.toggle("active", button.dataset.treeTab === state.activeTree));
+  const defs = TREE_DEFS[state.activeTree];
+  if (state.activeTree === "powerPrism" && treeLevel("unlockPowerPrism") === 0) {
+    $("#tree-container").innerHTML = `<article class="tree-node locked"><h3>Power Prism Tree Locked</h3><p>Purchase Power Prism Gateway in the Prism Tree for 1e9 Prisms after Prestige 6.</p></article>`;
+    return;
   }
-  if (state.prestigeCount >= 6) {
-    flows.push(`<div class="prestige-flow-card"><h4>Star Cores</h4><p>Generated from Prestige 6. Stored Star Cores amplify every world.</p><strong>${formatNumber(state.starCores)} · +${formatNumber(getStarCoreRate())}/s</strong></div>`);
-  }
-  $("#prestige-currency-content").innerHTML = flows.length
-    ? flows.join("")
-    : `<p class="empty-state">${getText("prestigeCurrencyLocked", "Reach Prestige 5 to unlock Void Essence.")}</p>`;
+  $("#tree-container").innerHTML = defs.map((node) => {
+    const level = treeLevel(node.id); const unlocked = node.req(); const maxed = level >= node.max; const cost = maxed ? bn(0) : node.cost(level);
+    return `<article class="tree-node ${!unlocked ? "locked" : ""} ${level > 0 ? "purchased" : ""}"><h3>${node.name}</h3><p>${node.desc}</p><div class="node-footer"><span>Lv. ${level}/${node.max}<br><small>${maxed ? "MAX" : `${format(cost)} ${node.currency}`}</small></span><button class="action-button" data-tree-buy="${node.id}" ${!unlocked || maxed ? "disabled" : ""}>${maxed ? "Maxed" : "Buy"}</button></div></article>`;
+  }).join("");
+  $$('[data-tree-buy]').forEach((button) => button.onclick = () => buyTreeNode(button.dataset.treeBuy));
 }
 
 function renderRunes() {
-  if (state.prestigeCount < 1) return;
-  const odds = getRuneOdds();
-  setText("rune-roll-cost", `Cost: ${formatNumber(getRuneRollCost(1))} Prisms · Roll 10: ${formatNumber(getRuneRollCost(10))}`);
-  setText("rune-total-count", formatNumber(totalRunes(), 0));
-  setDisabled("roll-rune-button", state.prisms < getRuneRollCost(1));
-  setDisabled("roll-ten-runes-button", state.prisms < getRuneRollCost(10));
-  $("#rune-odds-list").innerHTML = odds.map((rune) => `<div class="rune-odds-row"><span class="${rune.className}">${rune.icon} ${rune.name}</span><b>${(rune.chance * 100).toFixed(2)}%</b></div>`).join("");
-  $("#rune-inventory").innerHTML = RUNE_TYPES.map((rune) => {
-    const unlocked = state.prestigeCount >= rune.unlock;
-    return `<article class="rune-card ${unlocked ? "" : "locked"}"><div class="rune-card-header"><h4 class="${rune.className}">${rune.icon} ${rune.name}</h4><span class="rune-count">${unlocked ? formatNumber(runeCount(rune.id), 0) : `P${rune.unlock}`}</span></div><p>${rune.effect}</p></article>`;
+  const unlocked = RUNE_GROUPS.filter((g) => g.unlock());
+  if (!unlocked.some((g) => g.id === state.activeRuneGroup)) state.activeRuneGroup = unlocked[0]?.id || "basic";
+  $("#rune-group-tabs").innerHTML = unlocked.map((group) => `<button class="subtab ${state.activeRuneGroup === group.id ? "active" : ""}" data-rune-group="${group.id}">${group.name}</button>`).join("");
+  $$('[data-rune-group]').forEach((button) => button.onclick = () => { state.activeRuneGroup = button.dataset.runeGroup; renderRunes(); });
+  const group = RUNE_GROUPS.find((g) => g.id === state.activeRuneGroup) || RUNE_GROUPS[0];
+  $("#rune-roll-cost").textContent = `${format(group.cost)} Prisms`;
+  $("#roll-rune-one").disabled = !state.prisms.gte(group.cost);
+  $("#roll-rune-ten").disabled = !state.prisms.gte(group.cost.mul(10));
+  $("#rune-grid").innerHTML = RUNE_NAMES[group.id].map((name, index) => {
+    const copies = Number(state.runeCopies[`${group.id}:${index}`] || 0); const info = getRuneLevelFromCopies(copies); const type = RUNE_EFFECT_TYPES[index];
+    const descriptions = { power: "Multiplies fixed Power", generator: "Multiplies Generator output", rebirth: "Increases Rebirth gain", prism: "Increases Prism generation", core: "Increases Core output", souls: "Increases Soul output", aether: "Increases Aether output", survey: "Increases Survey speed", luck: "Improves Rune luck", copies: "Improves extra-copy chance" };
+    return `<article class="rune-card"><h3>${name}</h3><span class="rune-type">${group.name} · ${type}</span><div class="rune-level">LV ${info.level}</div><p>${descriptions[type]}. Current strength scales with Rune level.</p><small>${info.current}/${info.needed} copies to next level</small><div class="exp-track"><span style="width:${Math.min(100, info.current / info.needed * 100)}%"></span></div></article>`;
   }).join("");
 }
 
-function renderTree() {
-  if (state.prestigeCount < 1) return;
-  setText("tree-prism-balance", formatNumber(state.prisms));
-  const container = $("#tree-node-container");
-  container.innerHTML = TREE_NODES.map((node) => {
-    const level = treeLevel(node.id);
-    const maxed = level >= node.max;
-    const unlocked = isTreeNodeUnlocked(node);
-    const affordable = unlocked && !maxed && state.prisms >= getTreeNodeCost(node);
-    const className = maxed ? "maxed" : level > 0 ? "owned" : affordable ? "available" : "locked";
-    const label = maxed ? "MAX" : level > 0 ? `${level}/${node.max}` : unlocked ? `${formatNumber(getTreeNodeCost(node))}◇` : `P${node.prestige || 1}`;
-    return `<button class="tree-node ${className}" type="button" data-tree-node="${node.id}" style="left:${node.x}%;top:${node.y}%"><strong>${node.icon} ${node.name}</strong><span>${label}</span></button>`;
-  }).join("");
-  $$('[data-tree-node]').forEach((button) => button.addEventListener("click", () => purchaseTreeNode(button.dataset.treeNode)));
-
-  const selected = TREE_NODES.find((node) => node.id === selectedTreeNode) || TREE_NODES[0];
-  const level = treeLevel(selected.id);
-  const maxed = level >= selected.max;
-  const prerequisiteText = selected.requires.length ? selected.requires.map((id) => TREE_NODES.find((node) => node.id === id)?.name).join(", ") : "None";
-  $("#tree-node-details").innerHTML = `<strong>${selected.icon} ${selected.name}</strong> · Level ${level}/${selected.max}<br>${selected.effect}<br>${maxed ? "Maximum level reached." : `Next cost: ${formatNumber(getTreeNodeCost(selected))} Prisms · Requires: ${prerequisiteText}`}`;
+function renderSparks() {
+  if (state.prestige < 1) return;
+  $("#sparks-amount").textContent = format(state.sparks);
+  genericWorldCards($("#spark-grid"), "spark", "Sparks", "Spark Collector", "Voltage Array", "sparkCollectorLevel", "sparkPowerLevel", pow10(20 + state.sparkCollectorLevel * 4), bn(100).mul(pow10(state.sparkPowerLevel * 2)), `+${format(getSparkRate())}/s`, `×${format(pow10(state.sparkPowerLevel * 3))} Power`);
 }
 
-function renderWorlds(rates) {
-  setText("souls-amount", formatNumber(state.souls));
-  setText("souls-rate", `+${formatNumber(rates.souls)}/s`);
-  setHidden("#ember-hero", state.prestigeCount < 2);
-  setHidden("#ember-furnace-card", state.prestigeCount < 2);
-  setHidden("#ember-power-card", state.prestigeCount < 2);
-  setText("embers-amount", formatNumber(state.embers));
-  setText("embers-rate", `+${formatNumber(rates.embers)}/s`);
+function renderCore() {
+  $("#core-shards").textContent = format(state.coreShards);
+  $("#core-status").textContent = state.coreActive ? `Active · ${format(getCoreRate())}/s` : "Inactive";
+  const stabilizer = treeLevel("coreStabilizer");
+  $("#core-penalty").textContent = state.coreActive ? `Other production currently receives ×${otherProductionFactor().toFixed(2)}.` : `When active, other production receives ×${stabilizer >= 2 ? "0.90" : stabilizer >= 1 ? "0.75" : "0.50"}.`;
+  $("#toggle-core").textContent = state.coreActive ? "Stop Core" : "Start Core";
+  const producerCost = pow10(90 + state.coreRateLevel * 8); const powerCost = bn(10).mul(pow10(state.corePowerLevel * 2));
+  genericWorldCards($("#core-upgrades"), "core", "Core Shards", "Core Drill", "Core Resonance", "coreRateLevel", "corePowerLevel", producerCost, powerCost, `+${format(0.1 + state.coreRateLevel * .25)}/s`, `×${format(pow10(state.corePowerLevel * 10))} Power`);
+}
 
-  renderPurchase("soulHarvester", "soulHarvesterLevel", { levelId: "soul-harvester-level", costId: "soul-harvester-cost", buttonId: "buy-soul-harvester-button", currencyName: "Souls", effectId: "soul-harvester-effect", effect: () => `+${formatNumber(rates.souls)}/s` });
-  renderPurchase("soulPower", "soulPowerLevel", { levelId: "soul-power-level", costId: "soul-power-cost", buttonId: "buy-soul-power-button", currencyName: "Souls", effectId: "soul-power-effect", effect: () => `×${formatNumber(safePow(4, state.soulPowerLevel))}` });
-  if (state.prestigeCount >= 2) {
-    renderPurchase("emberFurnace", "emberFurnaceLevel", { levelId: "ember-furnace-level", costId: "ember-furnace-cost", buttonId: "buy-ember-furnace-button", currencyName: "Souls", effectId: "ember-furnace-effect", effect: () => `+${formatNumber(rates.embers)}/s` });
-    renderPurchase("emberPower", "emberPowerLevel", { levelId: "ember-power-level", costId: "ember-power-cost", buttonId: "buy-ember-power-button", currencyName: "Embers", effectId: "ember-power-effect", effect: () => `×${formatNumber(safePow(3, state.emberPowerLevel))}` });
+function renderWorlds() {
+  if (state.prestige >= 3) {
+    $("#souls-amount").textContent = format(state.souls);
+    genericWorldCards($("#underworld-grid"), "soul", "Souls", "Soul Harvester", "Soul Furnace", "soulHarvesterLevel", "soulPowerLevel", pow10(50 + state.soulHarvesterLevel * 6), bn(100).mul(pow10(state.soulPowerLevel * 2)), `+${format(getSoulRate())}/s`, `×${format(pow10(state.soulPowerLevel * 15))} Power`);
   }
-
-  setText("aether-amount", formatNumber(state.aether));
-  setText("aether-rate", `+${formatNumber(rates.aether)}/s`);
-  setHidden("#cloud-hero", state.prestigeCount < 4);
-  setHidden("#cloud-harvester-card", state.prestigeCount < 4);
-  setHidden("#cloud-power-card", state.prestigeCount < 4);
-  setText("clouds-amount", formatNumber(state.clouds));
-  setText("clouds-rate", `+${formatNumber(rates.clouds)}/s`);
-  renderPurchase("aetherCondenser", "aetherCondenserLevel", { levelId: "aether-condenser-level", costId: "aether-condenser-cost", buttonId: "buy-aether-condenser-button", currencyName: "Aether", effectId: "aether-condenser-effect", effect: () => `+${formatNumber(rates.aether)}/s` });
-  renderPurchase("celestialPower", "celestialPowerLevel", { levelId: "celestial-power-level", costId: "celestial-power-cost", buttonId: "buy-celestial-power-button", currencyName: "Aether", effectId: "celestial-power-effect", effect: () => `×${formatNumber(safePow(10, state.celestialPowerLevel))}` });
-  if (state.prestigeCount >= 4) {
-    renderPurchase("cloudHarvester", "cloudHarvesterLevel", { levelId: "cloud-harvester-level", costId: "cloud-harvester-cost", buttonId: "buy-cloud-harvester-button", currencyName: "Aether", effectId: "cloud-harvester-effect", effect: () => `+${formatNumber(rates.clouds)}/s` });
-    renderPurchase("cloudPower", "cloudPowerLevel", { levelId: "cloud-power-level", costId: "cloud-power-cost", buttonId: "buy-cloud-power-button", currencyName: "Clouds", effectId: "cloud-power-effect", effect: () => `×${formatNumber(safePow(3, state.cloudPowerLevel))}` });
+  if (state.prestige >= 4) {
+    $("#aether-amount").textContent = format(state.aether);
+    genericWorldCards($("#sky-grid"), "aether", "Aether", "Aether Harvester", "Celestial Engine", "aetherHarvesterLevel", "aetherPowerLevel", pow10(8 + state.aetherHarvesterLevel * 4), bn(100).mul(pow10(state.aetherPowerLevel * 2)), `+${format(getAetherRate())}/s`, `×${format(pow10(state.aetherPowerLevel * 22))} Power`);
   }
-
-  setText("stardust-amount", formatNumber(state.stardust));
-  setText("stardust-rate", `+${formatNumber(rates.stardust)}/s`);
-  setText("star-cores-amount", formatNumber(state.starCores));
-  setText("star-cores-rate", `+${formatNumber(rates.starCores)}/s`);
-  setText("space-passive-effect", `×${formatNumber((1 + Math.log10(state.stardust + 1) * 0.25) * (1 + state.starCores * 0.5))} all production`);
-  renderPurchase("stardustCollector", "stardustCollectorLevel", { levelId: "stardust-collector-level", costId: "stardust-collector-cost", buttonId: "buy-stardust-collector-button", currencyName: "Stardust", effectId: "stardust-collector-effect", effect: () => `+${formatNumber(rates.stardust)}/s` });
-  renderPurchase("stardustPower", "stardustPowerLevel", { levelId: "stardust-power-level", costId: "stardust-power-cost", buttonId: "buy-stardust-power-button", currencyName: "Stardust", effectId: "stardust-power-effect", effect: () => `×${formatNumber(safePow(10, state.stardustPowerLevel))}` });
-  renderPurchase("starCore", "starCoreLevel", { levelId: "star-core-level", costId: "star-core-cost", buttonId: "buy-star-core-button", currencyName: "Star Cores", effectId: "star-core-effect", effect: () => `×${formatNumber(safePow(2, state.starCoreLevel))}` });
+  if (state.prestige >= 6) {
+    $("#stardust-amount").textContent = format(state.stardust);
+    genericWorldCards($("#astral-grid"), "stardust", "Stardust", "Stardust Collector", "Astral Compression", "stardustCollectorLevel", "stardustPowerLevel", pow10(10 + state.stardustCollectorLevel * 4), bn(100).mul(pow10(state.stardustPowerLevel * 2)), `+${format(getStardustRate())}/s`, `×${format(pow10(state.stardustPowerLevel * 35))} Power`);
+  }
+  if (state.prestige >= 7) {
+    $("#star-essence").textContent = format(state.starEssence);
+    genericWorldCards($("#space-grid"), "star", "Star Essence", "Star Collector", "Stellar Engine", "starCollectorLevel", "starPowerLevel", pow10(6 + state.starCollectorLevel * 3), bn(100).mul(pow10(state.starPowerLevel * 2)), `+${format(getStarRate())}/s`, `×${format(pow10(state.starPowerLevel * 50))} Power`);
+  }
+  if (state.prestige >= 8) {
+    $("#nebula-essence").textContent = format(state.nebulaEssence);
+    genericWorldCards($("#nebula-grid"), "nebula", "Nebula Essence", "Nebula Condenser", "Nebula Exponent", "nebulaCollectorLevel", "nebulaPowerLevel", pow10(6 + state.nebulaCollectorLevel * 3), bn(100).mul(pow10(state.nebulaPowerLevel * 2)), `+${format(getNebulaRate())}/s`, `+${(state.nebulaPowerLevel * .04).toFixed(2)} exponent`);
+  }
+  if (state.prestige >= 9) {
+    $("#reality-fragments").textContent = format(state.realityFragments);
+    genericWorldCards($("#reality-grid"), "reality", "Reality Fragments", "Reality Scanner", "Reality Engine", "realityCollectorLevel", "realityPowerLevel", pow10(6 + state.realityCollectorLevel * 3), bn(100).mul(pow10(state.realityPowerLevel * 2)), `+${format(getRealityRate())}/s`, `×${format(pow10(state.realityPowerLevel * 70))} Power`);
+  }
+  if (state.prestige >= 10) {
+    $("#continuum-cores").textContent = format(state.continuumCores);
+    genericWorldCards($("#continuum-grid"), "continuum", "Continuum Cores", "Continuum Collector", "Continuum Exponent", "continuumCollectorLevel", "continuumPowerLevel", pow10(6 + state.continuumCollectorLevel * 3), bn(1 + state.continuumPowerLevel * 2), `+${format(getContinuumRate())}/s`, `+${(state.continuumPowerLevel * .08).toFixed(2)} exponent`);
+  }
+  $$('[data-world-buy]').forEach((button) => button.onclick = () => { const [system, type] = button.dataset.worldBuy.split(":"); buyWorldUpgrade(system, type); });
 }
 
-function applyTranslations() {
-  document.documentElement.lang = state.settings.language;
-  if (state.settings.language !== "id") return;
-  $$('[data-i18n]').forEach((element) => {
-    const translation = INDONESIAN[element.dataset.i18n];
-    if (translation) element.textContent = translation;
+function renderSurveys() {
+  if (state.prestige < 3) return;
+  $("#survey-data").textContent = format(state.surveyData);
+  if (state.activeSurvey) {
+    const route = SURVEYS.find((x) => x.id === state.activeSurvey.id);
+    $("#survey-active").innerHTML = `<b>${route?.name || "Survey"}</b><p>${formatDuration(state.activeSurvey.remaining)} remaining</p>`;
+  } else $("#survey-active").innerHTML = `<b>No active survey</b><p>Select one route below.</p>`;
+  $("#survey-grid").innerHTML = SURVEYS.filter((route, index) => state.prestige >= 3 + Math.floor(index / 2)).map((route) => `<article class="survey-card"><h3>${route.name}</h3><p>${route.desc}</p><small>${formatDuration(route.duration)} base duration</small><div class="button-row"><button class="action-button" data-survey="${route.id}" ${state.activeSurvey ? "disabled" : ""}>Start Survey</button></div></article>`).join("");
+  $$('[data-survey]').forEach((button) => button.onclick = () => startSurvey(button.dataset.survey));
+}
+
+function renderRelics() {
+  if (state.prestige < 5) return;
+  $("#echoes-amount").textContent = format(state.echoes);
+  const totalLevels = Object.values(state.relicLevels).reduce((a, b) => a + Number(b || 0), 0);
+  const cost = bn(100).mul(pow10(totalLevels * .25));
+  $("#forge-relic").textContent = `Forge Relic · ${format(cost)} Echoes`;
+  $("#forge-relic").disabled = !state.echoes.gte(cost);
+  $("#relic-grid").innerHTML = RELICS.map((r) => `<article class="rune-card"><h3>${r.name}</h3><span class="rune-type">Relic</span><div class="rune-level">LV ${relicLevel(r.id)}</div><p>${r.text}</p><small>Base weight: ${r.weight}</small></article>`).join("");
+}
+
+function renderSettings() {
+  $("#language-select").value = state.language;
+  $("#notation-select").value = state.notation;
+  $("#developer-login").hidden = state.developerUnlocked;
+  $("#developer-panel").hidden = !state.developerUnlocked;
+  const options = [...bigFields, "prestige", "generatorLevel", "rebirthPowerLevel", "rebirthGainLevel", "generatorMasteryLevel"];
+  $("#developer-currency").innerHTML = options.map((x) => `<option value="${x}">${x}</option>`).join("");
+}
+
+function applyLanguage() {
+  const dict = translations[state.language] || {};
+  $$('[data-t]').forEach((el) => {
+    const key = el.dataset.t;
+    if (!el.dataset.baseText) el.dataset.baseText = el.textContent;
+    el.textContent = dict[key] || el.dataset.baseText;
   });
+  document.documentElement.lang = state.language;
 }
 
-function renderGame() {
-  const rates = getRates();
-  renderNavigation();
-  renderHeader(rates);
-  renderProduction(rates);
-  renderRebirth(rates);
-  renderPrestige();
-  renderRunes();
-  renderTree();
-  renderWorlds(rates);
-  $("#language-select").value = state.settings.language;
-  $("#notation-select").value = state.settings.notation;
+function render() {
+  renderNavigation(); renderTop(); renderOverworld(); renderRebirth(); renderPrestige(); renderTrees();
+  if (state.prestige >= 1) { renderSparks(); renderRunes(); }
+  if (state.prestige >= 2) renderCore();
+  renderWorlds(); renderSurveys(); renderRelics(); renderSettings(); applyLanguage();
 }
 
-const ENGLISH_TEXT = new Map($$('[data-i18n]').map((element) => [element.dataset.i18n, element.textContent]));
-
-function switchLayer(layer) {
-  activeLayer = layer;
-  $$('[data-layer-view]').forEach((view) => {
-    const active = view.dataset.layerView === layer;
-    view.hidden = !active;
-    view.classList.toggle("active", active);
-  });
-  $$('[data-layer]').forEach((button) => {
-    const active = button.dataset.layer === layer;
-    button.classList.toggle("active", active);
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
-  });
-  window.scrollTo({ top: 0, behavior: "smooth" });
+function exportSave() {
+  $("#text-dialog-title").textContent = "Export Save";
+  $("#save-text").value = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+  $("#apply-import").hidden = true; $("#save-error").textContent = ""; $("#text-dialog").showModal();
 }
-
-function switchSection(group, section) {
-  $$(`[data-section-group="${group}"]`).forEach((button) => button.classList.toggle("active", button.dataset.section === section));
-  $$(`[data-section-panel^="${group}:"]`).forEach((panel) => {
-    const active = panel.dataset.sectionPanel === `${group}:${section}`;
-    panel.hidden = !active;
-    panel.classList.toggle("active", active);
-  });
+function importSaveDialog() {
+  $("#text-dialog-title").textContent = "Import Save"; $("#save-text").value = ""; $("#apply-import").hidden = false; $("#save-error").textContent = ""; $("#text-dialog").showModal();
 }
-
-function showToast(message) {
-  const toast = $("#toast");
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
-}
-
-function showOfflineDialog(report) {
-  if (!report || !Object.keys(report.gains).length) return;
-  const labels = {
-    power: "Power", sparks: "Sparks", prisms: "Prisms", souls: "Souls", embers: "Embers",
-    aether: "Aether", clouds: "Clouds", voidEssence: "Void Essence", starCores: "Star Cores", stardust: "Stardust",
-  };
-  $("#offline-results").innerHTML = `<p>You were away for <strong>${formatDuration(report.seconds)}</strong>.</p>${Object.entries(report.gains).map(([key, gain]) => `<div><span>${labels[key] || key}</span><strong>+${formatNumber(gain)}</strong></div>`).join("")}`;
-  $("#offline-dialog").showModal();
-}
-
-function encodeSave(data) {
-  return btoa(unescape(encodeURIComponent(data)));
-}
-
-function decodeSave(data) {
-  return decodeURIComponent(escape(atob(data.trim())));
-}
-
-function openExportDialog() {
-  saveGame(false);
-  setText("save-data-title", state.settings.language === "id" ? "Ekspor Simpanan" : "Export Save");
-  setText("save-data-description", state.settings.language === "id" ? "Salin teks ini dan simpan di tempat aman." : "Copy this text and store it somewhere safe.");
-  $("#save-data-textarea").value = encodeSave(JSON.stringify(state));
-  $("#save-data-textarea").readOnly = true;
-  $("#save-data-error").textContent = "";
-  $("#apply-import-button").hidden = true;
-  $("#save-data-dialog").showModal();
-  $("#save-data-textarea").select();
-}
-
-function openImportDialog() {
-  setText("save-data-title", state.settings.language === "id" ? "Impor Simpanan" : "Import Save");
-  setText("save-data-description", state.settings.language === "id" ? "Tempel kode simpanan yang valid di bawah." : "Paste a valid save code below.");
-  $("#save-data-textarea").value = "";
-  $("#save-data-textarea").readOnly = false;
-  $("#save-data-error").textContent = "";
-  $("#apply-import-button").hidden = false;
-  $("#save-data-dialog").showModal();
-}
-
-function applyImportedSave() {
+function applyImport() {
   try {
-    const raw = JSON.parse(decodeSave($("#save-data-textarea").value));
-    state = normalizeState(raw);
-    state.lastSavedAt = Date.now();
-    lastTickAt = Date.now();
-    saveGame(false);
-    $("#save-data-dialog").close();
-    applyTranslations();
-    renderGame();
-    showToast(state.settings.language === "id" ? "Simpanan berhasil diimpor." : "Save imported successfully.");
-  } catch (error) {
-    $("#save-data-error").textContent = state.settings.language === "id" ? "Kode simpanan tidak valid." : "Invalid save code.";
-  }
+    const decoded = decodeURIComponent(escape(atob($("#save-text").value.trim())));
+    localStorage.setItem(SAVE_KEY, decoded); location.reload();
+  } catch { $("#save-error").textContent = "Invalid save data."; }
 }
 
-function resetProgress() {
-  localStorage.removeItem(SAVE_KEY);
-  state = structuredClone(DEFAULT_STATE);
-  state.lastSavedAt = Date.now();
-  lastTickAt = Date.now();
-  activeLayer = "overworld";
-  selectedTreeNode = "root";
-  switchLayer("overworld");
-  switchSection("overworld", "production");
-  $("#reset-dialog").close();
-  applyTranslations();
-  renderGame();
-  saveGame(false);
-  showToast("Progress reset.");
+function resetProgress() { localStorage.removeItem(SAVE_KEY); state = defaultState(); currentView = "overworld"; saveGame(false); render(); }
+
+function developerModify(mode) {
+  const key = $("#developer-currency").value; const raw = $("#developer-amount").value;
+  if (bigFields.includes(key)) state[key] = mode === "add" ? state[key].add(raw) : bn(raw);
+  else if (key === "prestige") state.prestige = Math.max(0, Math.min(10, mode === "add" ? state.prestige + Number(raw) : Number(raw)));
+  else state[key] = Math.max(0, Math.floor(mode === "add" ? Number(state[key] || 0) + Number(raw) : Number(raw)));
+  render();
+}
+
+function unlockAllSystems() {
+  state.prestige = 10; state.prisms = state.prisms.add("1e20"); state.rebirths = state.rebirths.add("1e200"); state.power = state.power.add("1e2500");
+  state.coreShards = state.coreShards.add("1e10"); state.souls = state.souls.add("1e12"); state.aether = state.aether.add("1e12"); state.echoes = state.echoes.add("1e8"); state.stardust = state.stardust.add("1e10"); state.starEssence = state.starEssence.add("1e10"); state.nebulaEssence = state.nebulaEssence.add("1e10"); state.realityFragments = state.realityFragments.add("1e10"); state.continuumCores = state.continuumCores.add("1e4");
+  state.trees.unlockRefined = 1; state.trees.unlockArcane = 1; state.trees.unlockCosmic = 1; state.trees.unlockPowerPrism = 1; state.trees.unlockTranscendent = 1;
+  render();
 }
 
 function bindEvents() {
-  $$('[data-layer]').forEach((button) => button.addEventListener("click", () => {
-    if (!button.disabled) switchLayer(button.dataset.layer);
-  }));
-  $$('[data-section-group]').forEach((button) => button.addEventListener("click", () => {
-    if (!button.disabled) switchSection(button.dataset.sectionGroup, button.dataset.section);
-  }));
-  $$('[data-buy-mode]').forEach((button) => button.addEventListener("click", () => {
-    buyMode = button.dataset.buyMode;
-    $$('[data-buy-mode]').forEach((item) => item.classList.toggle("active", item === button));
-    renderGame();
-  }));
-
-  const purchases = [
-    ["buy-generator-button", "generator", "generatorLevel"], ["buy-spark-collector-button", "sparkCollector", "sparkCollectorLevel"], ["buy-voltage-button", "voltage", "voltageLevel"],
-    ["buy-rebirth-power-button", "rebirthPower", "rebirthPowerLevel"], ["buy-rebirth-efficiency-button", "rebirthEfficiency", "rebirthEfficiencyLevel"], ["buy-rebirth-spark-button", "rebirthSpark", "rebirthSparkLevel"], ["buy-prism-forge-button", "prismForge", "prismForgeLevel"],
-    ["buy-soul-harvester-button", "soulHarvester", "soulHarvesterLevel"], ["buy-ember-furnace-button", "emberFurnace", "emberFurnaceLevel"], ["buy-soul-power-button", "soulPower", "soulPowerLevel"], ["buy-ember-power-button", "emberPower", "emberPowerLevel"],
-    ["buy-aether-condenser-button", "aetherCondenser", "aetherCondenserLevel"], ["buy-cloud-harvester-button", "cloudHarvester", "cloudHarvesterLevel"], ["buy-celestial-power-button", "celestialPower", "celestialPowerLevel"], ["buy-cloud-power-button", "cloudPower", "cloudPowerLevel"],
-    ["buy-stardust-collector-button", "stardustCollector", "stardustCollectorLevel"], ["buy-stardust-power-button", "stardustPower", "stardustPowerLevel"], ["buy-star-core-button", "starCore", "starCoreLevel"],
-  ];
-  for (const [id, key, levelKey] of purchases) $(`#${id}`)?.addEventListener("click", () => purchaseUpgrade(key, levelKey));
-
-  $("#rebirth-button").addEventListener("click", performRebirth);
-  $("#prestige-button").addEventListener("click", performPrestige);
-  $("#roll-rune-button").addEventListener("click", () => rollRunes(1));
-  $("#roll-ten-runes-button").addEventListener("click", () => rollRunes(10));
-
-  $("#language-select").addEventListener("change", (event) => {
-    state.settings.language = event.target.value;
-    applyTranslations();
-    renderGame();
-    saveGame(false);
-  });
-  $("#notation-select").addEventListener("change", (event) => {
-    state.settings.notation = event.target.value;
-    renderGame();
-    saveGame(false);
-  });
-  $("#manual-save-button").addEventListener("click", () => saveGame(true));
-  $("#export-save-button").addEventListener("click", openExportDialog);
-  $("#import-save-button").addEventListener("click", openImportDialog);
-  $("#reset-save-button").addEventListener("click", () => $("#reset-dialog").showModal());
-  $("#cancel-reset-button").addEventListener("click", () => $("#reset-dialog").close());
-  $("#confirm-reset-button").addEventListener("click", resetProgress);
-  $("#close-offline-dialog").addEventListener("click", () => $("#offline-dialog").close());
-  $("#close-save-data-button").addEventListener("click", () => $("#save-data-dialog").close());
-  $("#apply-import-button").addEventListener("click", applyImportedSave);
-
+  $("#buy-generator").onclick = () => buyGenerator(false); $("#buy-max-generator").onclick = () => buyGenerator(true);
+  $("#buy-amplifier").onclick = () => buyAmplifier(false); $("#buy-max-amplifier").onclick = () => buyAmplifier(true);
+  $("#rebirth-button").onclick = performRebirth; $("#prestige-button").onclick = performPrestige;
+  $$('[data-tree-tab]').forEach((button) => button.onclick = () => { state.activeTree = button.dataset.treeTab; renderTrees(); });
+  $("#roll-rune-one").onclick = () => rollRune(1); $("#roll-rune-ten").onclick = () => rollRune(10);
+  $("#toggle-core").onclick = () => { state.coreActive = !state.coreActive; render(); };
+  $("#forge-relic").onclick = forgeRelic;
+  $("#language-select").onchange = (e) => { state.language = e.target.value; render(); };
+  $("#notation-select").onchange = (e) => { state.notation = e.target.value; render(); };
+  $("#manual-save").onclick = () => saveGame(true); $("#export-save").onclick = exportSave; $("#import-save").onclick = importSaveDialog;
+  $("#close-text-dialog").onclick = () => $("#text-dialog").close(); $("#apply-import").onclick = applyImport;
+  $("#reset-progress").onclick = () => $("#confirm-dialog").showModal(); $("#cancel-reset").onclick = () => $("#confirm-dialog").close(); $("#confirm-reset").onclick = () => { $("#confirm-dialog").close(); resetProgress(); };
+  $("#close-offline").onclick = () => $("#offline-dialog").close();
+  $("#enable-developer").onclick = () => { if ($("#developer-password").value === DEV_PASSWORD) { state.developerUnlocked = true; $("#developer-message").textContent = "Developer access enabled."; render(); } else $("#developer-message").textContent = "Incorrect password."; };
+  $("#developer-add").onclick = () => developerModify("add"); $("#developer-set").onclick = () => developerModify("set"); $("#developer-unlock").onclick = unlockAllSystems;
+  window.addEventListener("beforeunload", () => saveGame(false));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      silentlyCatchUp();
-      saveGame(false);
-    } else {
-      silentlyCatchUp();
-      renderGame();
-    }
-  });
-  window.addEventListener("beforeunload", () => {
-    silentlyCatchUp();
-    saveGame(false);
+    const now = Date.now(); const elapsed = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (now - state.lastUpdateAt) / 1000)); processProduction(elapsed); state.lastUpdateAt = now; render();
   });
 }
 
-function applyTranslations() {
-  document.documentElement.lang = state.settings.language;
-  $$('[data-i18n]').forEach((element) => {
-    const key = element.dataset.i18n;
-    const value = state.settings.language === "id" ? (INDONESIAN[key] || ENGLISH_TEXT.get(key)) : ENGLISH_TEXT.get(key);
-    if (value) element.textContent = value;
-  });
-}
-
-function tick() {
+function gameLoop() {
   const now = Date.now();
-  const elapsed = clamp((now - lastTickAt) / 1000, 0, MAX_OFFLINE_SECONDS);
-  lastTickAt = now;
-  if (elapsed > 0) applyProduction(elapsed, false);
-  runAutomation();
-  if (now - lastRenderedAt >= 100) {
-    renderGame();
-    lastRenderedAt = now;
+  const elapsed = Math.min(10, Math.max(0, (now - state.lastUpdateAt) / 1000));
+  processProduction(elapsed);
+  state.lastUpdateAt = now;
+  if (now - lastRenderAt >= 100) {
+    render();
+    lastRenderAt = now;
   }
+  frameHandle = requestAnimationFrame(gameLoop);
 }
 
 function initialize() {
-  const offlineReport = loadGame();
-  lastTickAt = Date.now();
   bindEvents();
-  applyTranslations();
-  renderGame();
-  switchLayer("overworld");
-  switchSection("overworld", "production");
-  if (offlineReport) showOfflineDialog(offlineReport);
-  setInterval(tick, 50);
-  setInterval(() => {
-    if (document.visibilityState === "visible") saveGame(false);
-  }, AUTOSAVE_INTERVAL_MS);
+  const offlineSeconds = loadGame();
+  render();
+  setInterval(() => saveGame(false), AUTOSAVE_MS);
+  frameHandle = requestAnimationFrame(gameLoop);
+  if (offlineSeconds >= 30) {
+    $("#offline-summary").innerHTML = `<p>You were away for ${formatDuration(offlineSeconds)}.</p><p>All unlocked producers, Prisms, and active systems were processed for up to 28 days.</p>`;
+    $("#offline-dialog").showModal();
+  }
 }
 
 initialize();

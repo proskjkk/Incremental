@@ -3,139 +3,199 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="The World Incremental — build Power, collect Rebirths, unlock worlds, roll Runes, and grow a Prism Tree." />
+  <meta name="description" content="The World Incremental — grow Power, Rebirth, Prestige, unlock worlds, Runes, Trees, and late-game systems." />
   <title>The World Incremental</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="background-grid" aria-hidden="true"></div>
-  <div class="background-orb orb-one" aria-hidden="true"></div>
-  <div class="background-orb orb-two" aria-hidden="true"></div>
-
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-symbol" aria-hidden="true">W</div>
-        <div><p class="version-label">PRE-ALPHA · V0.3.0</p><h1>The World Incremental</h1></div>
+      <div class="brand-block">
+        <div class="brand-mark">W</div>
+        <div>
+          <span class="version">V0.1.3</span>
+          <h1>The World Incremental</h1>
+        </div>
       </div>
-      <nav class="main-nav" aria-label="World navigation">
-        <p class="nav-heading" data-i18n="worlds">WORLDS</p>
-        <button class="nav-item active" type="button" data-layer="overworld" aria-current="page"><span class="nav-glyph overworld-glyph">●</span><span data-i18n="overworld">Overworld</span></button>
-        <button class="nav-item locked" id="underworld-nav" type="button" data-layer="underworld" disabled><span class="nav-glyph underworld-glyph">◆</span><span data-i18n="underworld">Underworld</span><small>100 total Rebirths</small></button>
-        <button class="nav-item locked" id="sky-nav" type="button" data-layer="sky" disabled><span class="nav-glyph sky-glyph">▲</span><span data-i18n="skyWorld">Sky World</span><small>Prestige 3</small></button>
-        <button class="nav-item locked" id="space-nav" type="button" data-layer="space" disabled><span class="nav-glyph space-glyph">✦</span><span data-i18n="space">Space</span><small>Prestige 7</small></button>
-        <p class="nav-heading system-heading" data-i18n="system">SYSTEM</p>
-        <button class="nav-item" type="button" data-layer="settings"><span class="nav-glyph settings-glyph">⚙</span><span data-i18n="settings">Settings</span></button>
+
+      <nav id="main-nav" class="nav-stack" aria-label="Game navigation">
+        <p class="nav-label" data-t="main">MAIN</p>
+        <button class="nav-button active" data-view="overworld" type="button"><span>◉</span><b data-t="overworld">Overworld</b></button>
+        <button class="nav-button" data-view="rebirth" type="button"><span>◆</span><b data-t="rebirth">Rebirth</b></button>
+        <button class="nav-button" data-view="prestige" type="button"><span>✦</span><b data-t="prestige">Prestige</b></button>
+        <button class="nav-button" data-view="trees" type="button"><span>⌘</span><b data-t="trees">Trees</b></button>
+
+        <div id="progressive-nav"></div>
+
+        <p class="nav-label" data-t="system">SYSTEM</p>
+        <button class="nav-button" data-view="settings" type="button"><span>⚙</span><b data-t="settings">Settings</b></button>
       </nav>
-      <div class="sidebar-status"><span class="save-dot" aria-hidden="true"></span><span id="save-status" aria-live="polite">Saved</span></div>
     </aside>
 
-    <main class="main-area">
+    <main class="main-content">
       <header class="topbar">
-        <div class="resource-strip" aria-label="Current currencies">
-          <div class="resource-chip power-chip" data-header-resource="power"><span data-i18n="power">Power</span><strong id="header-power">0</strong></div>
-          <div class="resource-chip rebirth-chip" data-header-resource="rebirths"><span data-i18n="rebirths">Rebirths</span><strong id="header-rebirths">0</strong></div>
-          <div class="resource-chip prestige-chip" data-header-resource="prestige"><span data-i18n="prestige">Prestige</span><strong id="header-prestige">0</strong></div>
-          <div class="resource-chip spark-chip" data-header-resource="sparks"><span data-i18n="sparks">Sparks</span><strong id="header-sparks">0</strong></div>
-          <div class="resource-chip prism-chip" data-header-resource="prisms" hidden><span data-i18n="prisms">Prisms</span><strong id="header-prisms">0</strong></div>
-          <div class="resource-chip soul-chip" data-header-resource="souls" hidden><span data-i18n="souls">Souls</span><strong id="header-souls">0</strong></div>
-          <div class="resource-chip ember-chip" data-header-resource="embers" hidden><span data-i18n="embers">Embers</span><strong id="header-embers">0</strong></div>
-          <div class="resource-chip aether-chip" data-header-resource="aether" hidden><span data-i18n="aether">Aether</span><strong id="header-aether">0</strong></div>
-          <div class="resource-chip cloud-chip" data-header-resource="clouds" hidden><span data-i18n="clouds">Clouds</span><strong id="header-clouds">0</strong></div>
-          <div class="resource-chip star-chip" data-header-resource="starCores" hidden><span data-i18n="starCores">Star Cores</span><strong id="header-star-cores">0</strong></div>
-          <div class="resource-chip stardust-chip" data-header-resource="stardust" hidden><span data-i18n="stardust">Stardust</span><strong id="header-stardust">0</strong></div>
-        </div>
-        <div class="buy-selector" aria-label="Purchase amount">
-          <button class="buy-mode active" type="button" data-buy-mode="1">×1</button><button class="buy-mode" type="button" data-buy-mode="10">×10</button><button class="buy-mode" type="button" data-buy-mode="max">MAX</button>
+        <div class="resource-bar">
+          <div class="resource primary"><span data-t="power">Power</span><strong id="top-power">0</strong></div>
+          <div class="resource"><span data-t="rebirths">Rebirths</span><strong id="top-rebirths">0</strong></div>
+          <div class="resource"><span data-t="prestige">Prestige</span><strong id="top-prestige">0 / 10</strong></div>
+          <div class="resource"><span data-t="prisms">Prisms</span><strong id="top-prisms">0</strong></div>
         </div>
       </header>
 
-      <section class="layer-view active" data-layer-view="overworld">
-        <div class="world-header overworld-header">
-          <div><p class="world-index">WORLD 01</p><h2 data-i18n="overworld">Overworld</h2><p data-i18n="overworldDescription">Grow Power and convert each 1,000 Power into one Rebirth.</p></div>
-          <div class="world-stat"><span data-i18n="powerPerSecond">Power per second</span><strong id="world-power-rate">1/s</strong></div>
-        </div>
-        <nav class="section-tabs" aria-label="Overworld sections">
-          <button class="section-tab active" type="button" data-section-group="overworld" data-section="production" data-i18n="production">Production</button>
-          <button class="section-tab" type="button" data-section-group="overworld" data-section="rebirth" data-i18n="rebirth">Rebirth</button>
-          <button class="section-tab" type="button" data-section-group="overworld" data-section="prestige" data-i18n="prestige">Prestige</button>
-          <button class="section-tab locked-tab" id="runes-tab-button" type="button" data-section-group="overworld" data-section="runes" disabled data-i18n="runes">Runes</button>
-          <button class="section-tab locked-tab" id="tree-tab-button" type="button" data-section-group="overworld" data-section="tree" disabled data-i18n="prismTree">Prism Tree</button>
-        </nav>
-
-        <div class="section-panel active" data-section-panel="overworld:production">
-          <section class="currency-hero"><span class="currency-label" data-i18n="power">Power</span><strong id="power-amount">0</strong><p><span id="power-rate">+1 Power/s</span> · <span data-i18n="multiplier">Multiplier</span> <b id="power-multiplier">×1</b></p></section>
-          <div class="upgrade-grid two-column-grid">
-            <article class="upgrade-card primary-upgrade"><div class="upgrade-icon">⚡</div><div class="upgrade-main"><div class="upgrade-heading"><div><p class="upgrade-type" data-i18n="producer">PRODUCER</p><h3 data-i18n="powerGenerator">Power Generator</h3></div><span id="generator-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="generatorDescription">Adds base Power production. Prestige 4 can automate purchases.</p><div class="upgrade-stats"><span><small data-i18n="output">Output</small><b id="generator-output">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="generator-cost">10 Power</b></span></div><button id="buy-generator-button" class="purchase-button" type="button" data-i18n="buyGenerator">Buy Generator</button><p id="generator-preview" class="purchase-note">Buy 1 for 10 Power.</p></div></article>
-            <article class="upgrade-card spark-upgrade"><div class="upgrade-icon">✧</div><div class="upgrade-main"><div class="upgrade-heading"><div><p class="upgrade-type" data-i18n="producer">PRODUCER</p><h3 data-i18n="sparkCollector">Spark Collector</h3></div><span id="spark-collector-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="sparkDescription">Produces Sparks. Stored Sparks multiply Power.</p><div class="upgrade-stats"><span><small data-i18n="rate">Rate</small><b id="spark-rate">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="spark-collector-cost">250 Power</b></span></div><button id="buy-spark-collector-button" class="purchase-button spark-button" type="button" data-i18n="buyCollector">Buy Collector</button><p id="spark-collector-preview" class="purchase-note">Buy 1 for 250 Power.</p></div></article>
-            <article class="upgrade-card compact-upgrade"><div class="upgrade-icon">⌁</div><div class="upgrade-main"><div class="upgrade-heading"><div><p class="upgrade-type" data-i18n="sparkUpgrade">SPARK UPGRADE</p><h3 data-i18n="voltage">Voltage</h3></div><span id="voltage-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="voltageDescription">Doubles Power generation per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="voltage-effect">×1 Power</b></span><span><small data-i18n="cost">Cost</small><b id="voltage-cost">25 Sparks</b></span></div><button id="buy-voltage-button" class="purchase-button neutral-button" type="button" data-i18n="upgrade">Upgrade</button></div></article>
-            <article class="info-card"><p class="upgrade-type" data-i18n="nextUnlock">NEXT UNLOCK</p><h3 id="next-unlock-title">Underworld</h3><p id="next-unlock-description">Earn 100 total Rebirths to open the Underworld.</p><div class="progress-track"><div id="next-unlock-bar" class="progress-fill"></div></div><strong id="next-unlock-progress">0 / 100 total Rebirths</strong></article>
-          </div>
+      <section class="view active" data-view-panel="overworld">
+        <div class="page-heading">
+          <div><span class="eyebrow">WORLD 01</span><h2 data-t="overworld">Overworld</h2><p data-t="overworldDesc">Build Power, purchase fixed upgrades, and prepare for Rebirth.</p></div>
+          <div class="headline-stat"><span data-t="powerPerSecond">Power per second</span><strong id="power-rate">1/s</strong></div>
         </div>
 
-        <div class="section-panel" data-section-panel="overworld:rebirth" hidden>
-          <section class="reset-board rebirth-board"><div><p class="board-label" data-i18n="rebirthReset">REBIRTH RESET</p><h3><span id="rebirth-gain">0</span> <span data-i18n="rebirths">Rebirths</span></h3><p data-i18n="rebirthFormula">Every 1,000 Power gives one base Rebirth. Higher Power stacks the reward.</p></div><div class="reset-board-side"><span><small data-i18n="currentPower">Current Power</small><b id="rebirth-current-power">0</b></span><span><small data-i18n="gainMultiplier">Gain multiplier</small><b id="rebirth-gain-multiplier">×1</b></span><button id="rebirth-button" class="reset-button rebirth-reset-button" type="button" data-i18n="rebirthNow">Rebirth Now</button></div></section>
-          <div class="section-heading-row"><div><p class="section-kicker" data-i18n="spendRebirths">SPEND REBIRTHS</p><h3 data-i18n="rebirthUpgrades">Rebirth Upgrades</h3></div><strong class="currency-balance"><span id="rebirth-balance">0</span> R</strong></div>
-          <div class="upgrade-grid two-column-grid">
-            <article class="upgrade-card"><div class="upgrade-icon rebirth-icon">R</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="rebirthCharge">Rebirth Charge</h3><span id="rebirth-power-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="rebirthChargeDescription">Triples Power generation per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="rebirth-power-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="rebirth-power-cost">1 R</b></span></div><button id="buy-rebirth-power-button" class="purchase-button rebirth-purchase" type="button" data-i18n="upgrade">Upgrade</button></div></article>
-            <article class="upgrade-card"><div class="upgrade-icon rebirth-icon">%</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="rebirthEfficiency">Rebirth Efficiency</h3><span id="rebirth-efficiency-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="rebirthEfficiencyDescription">Adds 25% to Rebirth gain per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="rebirth-efficiency-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="rebirth-efficiency-cost">5 R</b></span></div><button id="buy-rebirth-efficiency-button" class="purchase-button rebirth-purchase" type="button" data-i18n="upgrade">Upgrade</button></div></article>
-            <article class="upgrade-card"><div class="upgrade-icon rebirth-icon">✧</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="sparkMemory">Spark Memory</h3><span id="rebirth-spark-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="sparkMemoryDescription">Multiplies Spark production by two per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="rebirth-spark-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="rebirth-spark-cost">10 R</b></span></div><button id="buy-rebirth-spark-button" class="purchase-button rebirth-purchase" type="button" data-i18n="upgrade">Upgrade</button></div></article>
-            <article class="upgrade-card" id="prism-forge-card" hidden><div class="upgrade-icon prism-icon">◇</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="prismForge">Prism Forge</h3><span id="prism-forge-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="prismForgeDescription">Produces Prisms passively after Prestige 1.</p><div class="upgrade-stats single-stat"><span><small data-i18n="rate">Rate</small><b id="prism-forge-effect">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="prism-forge-cost">50 R</b></span></div><button id="buy-prism-forge-button" class="purchase-button prism-button" type="button" data-i18n="upgrade">Upgrade</button></div></article>
-          </div>
-        </div>
-        <div class="section-panel" data-section-panel="overworld:prestige" hidden>
-          <section class="prestige-board"><div class="prestige-board-header"><div><p class="board-label" data-i18n="prestigeReset">PRESTIGE RESET</p><h3><span data-i18n="prestige">Prestige</span> <span id="prestige-current-level">0</span></h3><p id="prestige-gain-copy">Reach 1 Qn Power for Prestige 1.</p></div><div class="prestige-orb" aria-hidden="true"><span id="prestige-potential">+0</span></div></div><div class="prestige-requirement-row"><span><small data-i18n="nextRequirement">Next requirement</small><b id="prestige-next-requirement">1 Qn Power</b></span><span><small data-i18n="levelsGained">Levels gained</small><b id="prestige-levels-gained">0</b></span><button id="prestige-button" class="reset-button prestige-reset-button" type="button" data-i18n="prestigeNow">Prestige Now</button></div></section>
-          <div class="prestige-layout-grid"><article class="panel-card"><div class="section-heading-row compact-heading"><div><p class="section-kicker" data-i18n="rewardPath">REWARD PATH</p><h3 data-i18n="prestigeRewards">Prestige Rewards</h3></div></div><div id="prestige-reward-list" class="reward-list"></div></article><article class="panel-card" id="prestige-currency-panel"><div class="section-heading-row compact-heading"><div><p class="section-kicker" data-i18n="prestigeCurrencies">PRESTIGE CURRENCIES</p><h3 data-i18n="permanentFlows">Permanent Flows</h3></div></div><div id="prestige-currency-content" class="prestige-currency-content"><p class="empty-state" data-i18n="prestigeCurrencyLocked">Reach Prestige 5 to unlock Void Essence.</p></div></article></div>
+        <div class="hero-grid">
+          <article class="hero-card power-hero">
+            <span data-t="power">Power</span>
+            <strong id="power-amount">0</strong>
+            <small id="power-multiplier">Fixed multiplier ×1</small>
+          </article>
+          <article class="hero-card prism-hero">
+            <span data-t="prisms">Prisms</span>
+            <strong id="prism-amount">0</strong>
+            <small id="prism-timer">Next Prism in 60s</small>
+          </article>
         </div>
 
-        <div class="section-panel" data-section-panel="overworld:runes" hidden>
-          <div class="rune-layout"><article class="rune-machine panel-card"><p class="section-kicker" data-i18n="runeMachine">RUNE MACHINE</p><h3 data-i18n="rollRunes">Roll Runes</h3><p data-i18n="runeDescription">Spend Prisms for a weighted random Rune. Higher Prestige unlocks rarer types.</p><div id="last-rune-result" class="last-rune-result"><span class="rune-result-icon">?</span><div><small data-i18n="lastRoll">Last roll</small><strong data-i18n="noneYet">None yet</strong></div></div><div class="rune-actions"><button id="roll-rune-button" class="purchase-button prism-button" type="button">Roll 1</button><button id="roll-ten-runes-button" class="purchase-button neutral-button" type="button">Roll 10</button></div><p id="rune-roll-cost" class="purchase-note">Cost: 5 Prisms</p></article><article class="panel-card rune-info-panel"><p class="section-kicker" data-i18n="runeInfo">RUNE INFO</p><h3><span id="rune-total-count">0</span> <span data-i18n="runesOwned">Runes Owned</span></h3><div id="rune-odds-list" class="rune-odds-list"></div></article></div>
-          <div id="rune-inventory" class="rune-inventory"></div>
-        </div>
-
-        <div class="section-panel" data-section-panel="overworld:tree" hidden>
-          <div class="tree-toolbar"><div><p class="section-kicker" data-i18n="prismTree">PRISM TREE</p><h3 data-i18n="growWorldTree">Grow the World Tree</h3><p data-i18n="treeDescription">Spend Prisms on permanent connected upgrades. Purchase prerequisite nodes first.</p></div><div class="tree-balance"><span id="tree-prism-balance">0</span> ◇</div></div>
-          <div class="tree-scroll"><div class="tree-stage"><svg class="tree-connections" viewBox="0 0 1000 620" preserveAspectRatio="none" aria-hidden="true"><line x1="500" y1="520" x2="250" y2="385"></line><line x1="500" y1="520" x2="500" y2="385"></line><line x1="500" y1="520" x2="750" y2="385"></line><line x1="250" y1="385" x2="140" y2="220"></line><line x1="500" y1="385" x2="380" y2="220"></line><line x1="750" y1="385" x2="620" y2="220"></line><line x1="750" y1="385" x2="860" y2="220"></line><line x1="380" y1="220" x2="500" y2="70"></line><line x1="620" y1="220" x2="500" y2="70"></line></svg><div id="tree-node-container" class="tree-node-container"></div></div></div>
-          <div id="tree-node-details" class="tree-node-details">Select a node to inspect its cost and effect.</div>
+        <div class="section-title"><div><span class="eyebrow" data-t="production">PRODUCTION</span><h3 data-t="powerGenerators">Power Generators</h3></div></div>
+        <div class="card-grid two">
+          <article class="game-card">
+            <div class="card-icon">⚡</div>
+            <div class="card-content">
+              <div class="card-title-row"><h3 data-t="generator">Generator</h3><span id="generator-level" class="level-pill">Lv. 0</span></div>
+              <p data-t="generatorDesc">Produces Power continuously. Earlier generators remain useful through fixed upgrades.</p>
+              <div class="stat-row"><span><small data-t="output">Output</small><b id="generator-output">+1/s</b></span><span><small data-t="nextCost">Next cost</small><b id="generator-cost">10 Power</b></span></div>
+              <div class="button-row"><button id="buy-generator" class="action-button" type="button" data-t="buyOne">Buy 1</button><button id="buy-max-generator" class="action-button secondary" type="button" data-t="buyMax">Buy Max</button></div>
+            </div>
+          </article>
+          <article class="game-card">
+            <div class="card-icon">⟳</div>
+            <div class="card-content">
+              <div class="card-title-row"><h3 data-t="generatorAmplifier">Generator Amplifier</h3><span id="amplifier-level" class="level-pill">Lv. 0</span></div>
+              <p data-t="generatorAmplifierDesc">A fixed Generator multiplier. It never increases just because time passes.</p>
+              <div class="stat-row"><span><small data-t="effect">Effect</small><b id="amplifier-effect">×1</b></span><span><small data-t="nextCost">Next cost</small><b id="amplifier-cost">1.00e6 Power</b></span></div>
+              <div class="button-row"><button id="buy-amplifier" class="action-button" type="button" data-t="buyOne">Buy 1</button><button id="buy-max-amplifier" class="action-button secondary" type="button" data-t="buyMax">Buy Max</button></div>
+            </div>
+          </article>
         </div>
       </section>
 
-      <section class="layer-view" data-layer-view="underworld" hidden>
-        <div class="world-header underworld-header"><div><p class="world-index">WORLD 02</p><h2 data-i18n="underworld">Underworld</h2><p data-i18n="underworldDescription">Harvest Souls and Embers to empower every earlier system.</p></div><div class="world-stat"><span data-i18n="soulsPerSecond">Souls per second</span><strong id="world-soul-rate">0/s</strong></div></div>
-        <nav class="section-tabs" aria-label="Underworld sections"><button class="section-tab active" type="button" data-section-group="underworld" data-section="harvest" data-i18n="harvest">Harvest</button><button class="section-tab" type="button" data-section-group="underworld" data-section="upgrades" data-i18n="upgrades">Upgrades</button></nav>
-        <div class="section-panel active" data-section-panel="underworld:harvest"><section class="dual-currency-hero underworld-currency-hero"><div><span data-i18n="souls">Souls</span><strong id="souls-amount">0</strong><small id="souls-rate">+0/s</small></div><div id="ember-hero" hidden><span data-i18n="embers">Embers</span><strong id="embers-amount">0</strong><small id="embers-rate">+0/s</small></div></section><div class="upgrade-grid two-column-grid"><article class="upgrade-card underworld-card"><div class="upgrade-icon">☠</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="soulHarvester">Soul Harvester</h3><span id="soul-harvester-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="soulHarvesterDescription">Increases passive Soul generation.</p><div class="upgrade-stats single-stat"><span><small data-i18n="rate">Rate</small><b id="soul-harvester-effect">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="soul-harvester-cost">10 Souls</b></span></div><button id="buy-soul-harvester-button" class="purchase-button underworld-button" type="button" data-i18n="upgrade">Upgrade</button></div></article><article class="upgrade-card underworld-card" id="ember-furnace-card" hidden><div class="upgrade-icon">♨</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="emberFurnace">Ember Furnace</h3><span id="ember-furnace-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="emberFurnaceDescription">Converts Underworld growth into passive Embers.</p><div class="upgrade-stats single-stat"><span><small data-i18n="rate">Rate</small><b id="ember-furnace-effect">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="ember-furnace-cost">100 Souls</b></span></div><button id="buy-ember-furnace-button" class="purchase-button ember-button" type="button" data-i18n="upgrade">Upgrade</button></div></article></div></div>
-        <div class="section-panel" data-section-panel="underworld:upgrades" hidden><div class="upgrade-grid two-column-grid"><article class="upgrade-card underworld-card"><div class="upgrade-icon">×</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="tormentedPower">Tormented Power</h3><span id="soul-power-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="tormentedPowerDescription">Multiplies Power by four per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="soul-power-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="soul-power-cost">50 Souls</b></span></div><button id="buy-soul-power-button" class="purchase-button underworld-button" type="button" data-i18n="upgrade">Upgrade</button></div></article><article class="upgrade-card underworld-card" id="ember-power-card" hidden><div class="upgrade-icon">🔥</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="emberDrive">Ember Drive</h3><span id="ember-power-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="emberDriveDescription">Triples Souls, Embers, and Power per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="ember-power-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="ember-power-cost">25 Embers</b></span></div><button id="buy-ember-power-button" class="purchase-button ember-button" type="button" data-i18n="upgrade">Upgrade</button></div></article></div></div>
+      <section class="view" data-view-panel="rebirth" hidden>
+        <div class="page-heading">
+          <div><span class="eyebrow">RESET 01</span><h2 data-t="rebirth">Rebirth</h2><p data-t="rebirthDesc">Every 1,000 Power contributes one base Rebirth. Rebirth itself gives no bonus until spent.</p></div>
+          <div class="headline-stat"><span data-t="rebirthGain">Rebirth gain</span><strong id="rebirth-gain">0</strong></div>
+        </div>
+        <article class="reset-panel">
+          <div><span data-t="youWillReceive">You will receive</span><strong id="rebirth-preview">0 Rebirths</strong><p data-t="rebirthResetText">Resets Power, Generators, and Overworld Power purchases.</p></div>
+          <button id="rebirth-button" class="reset-button" type="button" data-t="rebirthNow">Rebirth Now</button>
+        </article>
+        <div class="section-title"><div><span class="eyebrow" data-t="fixedUpgrades">FIXED UPGRADES</span><h3 data-t="spendRebirths">Spend Rebirths</h3></div></div>
+        <div id="rebirth-upgrade-grid" class="card-grid three"></div>
       </section>
 
-      <section class="layer-view" data-layer-view="sky" hidden>
-        <div class="world-header sky-header"><div><p class="world-index">WORLD 03</p><h2 data-i18n="skyWorld">Sky World</h2><p data-i18n="skyDescription">Condense Aether and gather Clouds for celestial multipliers.</p></div><div class="world-stat"><span data-i18n="aetherPerSecond">Aether per second</span><strong id="world-aether-rate">0/s</strong></div></div>
-        <nav class="section-tabs" aria-label="Sky World sections"><button class="section-tab active" type="button" data-section-group="sky" data-section="harvest" data-i18n="harvest">Harvest</button><button class="section-tab" type="button" data-section-group="sky" data-section="upgrades" data-i18n="upgrades">Upgrades</button></nav>
-        <div class="section-panel active" data-section-panel="sky:harvest"><section class="dual-currency-hero sky-currency-hero"><div><span data-i18n="aether">Aether</span><strong id="aether-amount">0</strong><small id="aether-rate">+0/s</small></div><div id="cloud-hero" hidden><span data-i18n="clouds">Clouds</span><strong id="clouds-amount">0</strong><small id="clouds-rate">+0/s</small></div></section><div class="upgrade-grid two-column-grid"><article class="upgrade-card sky-card"><div class="upgrade-icon">△</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="aetherCondenser">Aether Condenser</h3><span id="aether-condenser-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="aetherCondenserDescription">Increases passive Aether generation.</p><div class="upgrade-stats single-stat"><span><small data-i18n="rate">Rate</small><b id="aether-condenser-effect">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="aether-condenser-cost">10 Aether</b></span></div><button id="buy-aether-condenser-button" class="purchase-button sky-button" type="button" data-i18n="upgrade">Upgrade</button></div></article><article class="upgrade-card sky-card" id="cloud-harvester-card" hidden><div class="upgrade-icon">☁</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="cloudHarvester">Cloud Harvester</h3><span id="cloud-harvester-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="cloudHarvesterDescription">Generates Clouds after Prestige 4.</p><div class="upgrade-stats single-stat"><span><small data-i18n="rate">Rate</small><b id="cloud-harvester-effect">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="cloud-harvester-cost">100 Aether</b></span></div><button id="buy-cloud-harvester-button" class="purchase-button cloud-button" type="button" data-i18n="upgrade">Upgrade</button></div></article></div></div>
-        <div class="section-panel" data-section-panel="sky:upgrades" hidden><div class="upgrade-grid two-column-grid"><article class="upgrade-card sky-card"><div class="upgrade-icon">✦</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="celestialPower">Celestial Power</h3><span id="celestial-power-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="celestialPowerDescription">Multiplies Power by ten per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="celestial-power-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="celestial-power-cost">50 Aether</b></span></div><button id="buy-celestial-power-button" class="purchase-button sky-button" type="button" data-i18n="upgrade">Upgrade</button></div></article><article class="upgrade-card sky-card" id="cloud-power-card" hidden><div class="upgrade-icon">☄</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="stormCircuit">Storm Circuit</h3><span id="cloud-power-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="stormCircuitDescription">Triples Aether, Clouds, and Power per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="cloud-power-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="cloud-power-cost">25 Clouds</b></span></div><button id="buy-cloud-power-button" class="purchase-button cloud-button" type="button" data-i18n="upgrade">Upgrade</button></div></article></div></div>
-      </section>
-      <section class="layer-view" data-layer-view="space" hidden>
-        <div class="world-header space-header"><div><p class="world-index">WORLD 04</p><h2 data-i18n="space">Space</h2><p data-i18n="spaceDescription">Prestige 7 breaks the planetary boundary and unlocks Stardust.</p></div><div class="world-stat"><span data-i18n="stardustPerSecond">Stardust per second</span><strong id="world-stardust-rate">0/s</strong></div></div>
-        <nav class="section-tabs" aria-label="Space sections"><button class="section-tab active" type="button" data-section-group="space" data-section="harvest" data-i18n="harvest">Harvest</button><button class="section-tab" type="button" data-section-group="space" data-section="upgrades" data-i18n="upgrades">Upgrades</button></nav>
-        <div class="section-panel active" data-section-panel="space:harvest"><section class="dual-currency-hero space-currency-hero"><div><span data-i18n="stardust">Stardust</span><strong id="stardust-amount">0</strong><small id="stardust-rate">+0/s</small></div><div><span data-i18n="starCores">Star Cores</span><strong id="star-cores-amount">0</strong><small id="star-cores-rate">+0/s</small></div></section><div class="upgrade-grid two-column-grid"><article class="upgrade-card space-card"><div class="upgrade-icon">✦</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="stardustCollector">Stardust Collector</h3><span id="stardust-collector-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="stardustCollectorDescription">Increases passive Stardust production.</p><div class="upgrade-stats single-stat"><span><small data-i18n="rate">Rate</small><b id="stardust-collector-effect">+0/s</b></span><span><small data-i18n="cost">Cost</small><b id="stardust-collector-cost">10 Stardust</b></span></div><button id="buy-stardust-collector-button" class="purchase-button space-button" type="button" data-i18n="upgrade">Upgrade</button></div></article><article class="info-card space-info-card"><p class="upgrade-type" data-i18n="spaceEffect">SPACE EFFECT</p><h3 data-i18n="stellarAmplification">Stellar Amplification</h3><p data-i18n="stellarAmplificationDescription">Stardust and Star Cores multiply all previous world production.</p><strong id="space-passive-effect">×1 all production</strong></article></div></div>
-        <div class="section-panel" data-section-panel="space:upgrades" hidden><div class="upgrade-grid two-column-grid"><article class="upgrade-card space-card"><div class="upgrade-icon">×</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="stellarPower">Stellar Power</h3><span id="stardust-power-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="stellarPowerDescription">Multiplies all production by ten per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="stardust-power-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="stardust-power-cost">25 Stardust</b></span></div><button id="buy-stardust-power-button" class="purchase-button space-button" type="button" data-i18n="upgrade">Upgrade</button></div></article><article class="upgrade-card space-card"><div class="upgrade-icon">◎</div><div class="upgrade-main"><div class="upgrade-heading"><h3 data-i18n="coreCompression">Core Compression</h3><span id="star-core-level" class="level-badge">Lv. 0</span></div><p class="upgrade-description" data-i18n="coreCompressionDescription">Doubles every currency rate per level.</p><div class="upgrade-stats single-stat"><span><small data-i18n="effect">Effect</small><b id="star-core-effect">×1</b></span><span><small data-i18n="cost">Cost</small><b id="star-core-cost">1 Star Core</b></span></div><button id="buy-star-core-button" class="purchase-button space-button" type="button" data-i18n="upgrade">Upgrade</button></div></article></div></div>
+      <section class="view" data-view-panel="prestige" hidden>
+        <div class="page-heading">
+          <div><span class="eyebrow">RESET 02</span><h2 data-t="prestige">Prestige</h2><p data-t="prestigeDesc">Prestige is a permanent level. It grants fixed rewards and new systems rather than spendable currency.</p></div>
+          <div class="headline-stat"><span data-t="currentPrestige">Current Prestige</span><strong id="prestige-level">0 / 10</strong></div>
+        </div>
+        <article class="reset-panel prestige-panel">
+          <div><span data-t="availablePrestige">Available Prestige</span><strong id="prestige-preview">No Prestige available</strong><p id="prestige-next-requirement">Prestige 1 requires 1e18 Power.</p></div>
+          <button id="prestige-button" class="reset-button prestige-button" type="button" data-t="prestigeNow">Prestige</button>
+        </article>
+        <div id="prestige-reward-list" class="prestige-list"></div>
       </section>
 
-      <section class="layer-view" data-layer-view="settings" hidden>
-        <div class="world-header settings-header"><div><p class="world-index" data-i18n="system">SYSTEM</p><h2 data-i18n="settings">Settings</h2><p data-i18n="settingsDescription">Display, language, save data, and progress controls.</p></div></div>
+      <section class="view" data-view-panel="trees" hidden>
+        <div class="page-heading"><div><span class="eyebrow">UPGRADE NETWORKS</span><h2 data-t="trees">Trees</h2><p data-t="treesDesc">Three separate upgrade networks. Nodes provide fixed effects only unless explicitly marked Momentum.</p></div></div>
+        <div class="tab-row"><button class="subtab active" data-tree-tab="power" type="button">Power Tree</button><button class="subtab" data-tree-tab="prism" type="button">Prism Tree</button><button class="subtab" data-tree-tab="powerPrism" type="button">Power Prism Tree</button></div>
+        <div id="tree-container" class="tree-container"></div>
+      </section>
+
+      <section class="view" data-view-panel="runes" hidden>
+        <div class="page-heading"><div><span class="eyebrow">RANDOMIZED PROGRESSION</span><h2 data-t="runes">Runes</h2><p data-t="runesDesc">Roll duplicate Runes to gain EXP and levels. Runes can affect Power, Rebirths, Prism speed, Core output, surveys, and more.</p></div><div class="headline-stat"><span data-t="rollCost">Roll cost</span><strong id="rune-roll-cost">25 Prisms</strong></div></div>
+        <div id="rune-group-tabs" class="tab-row"></div>
+        <div class="rune-actions"><button id="roll-rune-one" class="action-button" type="button">Roll 1</button><button id="roll-rune-ten" class="action-button secondary" type="button">Roll 10</button><span id="rune-roll-result"></span></div>
+        <div id="rune-grid" class="rune-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="sparks" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 1</span><h2>Sparks</h2><p>Sparks are generated by purchased collectors. Their balance gives no automatic multiplier.</p></div><div class="headline-stat"><span>Sparks</span><strong id="sparks-amount">0</strong></div></div>
+        <div class="card-grid two" id="spark-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="core" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 2</span><h2 data-t="theCore">The Core</h2><p data-t="coreDesc">Activate Core production to generate Core Shards. While active, all other production is reduced.</p></div><div class="headline-stat"><span data-t="coreShards">Core Shards</span><strong id="core-shards">0</strong></div></div>
+        <article class="reset-panel core-panel"><div><span data-t="coreStatus">Core status</span><strong id="core-status">Inactive</strong><p id="core-penalty">Other production is reduced by 50% while active.</p></div><button id="toggle-core" class="reset-button core-button" type="button">Start Core</button></article>
+        <div class="card-grid two" id="core-upgrades"></div>
+      </section>
+
+      <section class="view" data-view-panel="underworld" hidden>
+        <div class="page-heading"><div><span class="eyebrow">WORLD 02</span><h2 data-t="underworld">Underworld</h2><p data-t="underworldDesc">Generate Souls and purchase fixed production upgrades.</p></div><div class="headline-stat"><span data-t="souls">Souls</span><strong id="souls-amount">0</strong></div></div>
+        <div class="card-grid two" id="underworld-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="exploration" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 3</span><h2 data-t="worldSurvey">World Survey</h2><p data-t="surveyDesc">Choose timed routes with different reward caches. Only one survey may run at once.</p></div><div class="headline-stat"><span data-t="surveyData">Survey Data</span><strong id="survey-data">0</strong></div></div>
+        <div id="survey-active" class="active-survey"></div><div id="survey-grid" class="card-grid three"></div>
+      </section>
+
+      <section class="view" data-view-panel="sky" hidden>
+        <div class="page-heading"><div><span class="eyebrow">WORLD 03</span><h2 data-t="skyWorld">Sky World</h2><p data-t="skyDesc">Generate Aether and unlock the first legitimate time-growing Momentum effect.</p></div><div class="headline-stat"><span data-t="aether">Aether</span><strong id="aether-amount">0</strong></div></div>
+        <div class="card-grid two" id="sky-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="relics" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 5</span><h2 data-t="relicForge">Relic Forge</h2><p data-t="relicDesc">Spend Echoes to forge random Relics. Duplicate Relics increase levels.</p></div><div class="headline-stat"><span data-t="echoes">Echoes</span><strong id="echoes-amount">0</strong></div></div>
+        <div class="rune-actions"><button id="forge-relic" class="action-button" type="button">Forge Relic</button><span id="relic-result"></span></div><div id="relic-grid" class="rune-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="astral" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 6</span><h2 data-t="astralLab">Astral Lab</h2><p data-t="astralDesc">Produce Stardust and purchase fixed late-game research.</p></div><div class="headline-stat"><span data-t="stardust">Stardust</span><strong id="stardust-amount">0</strong></div></div>
+        <div class="card-grid two" id="astral-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="space" hidden>
+        <div class="page-heading"><div><span class="eyebrow">WORLD 04</span><h2 data-t="space">Space</h2><p data-t="spaceDesc">Prestige 7 opens Space and Star Essence production.</p></div><div class="headline-stat"><span data-t="starEssence">Star Essence</span><strong id="star-essence">0</strong></div></div>
+        <div class="card-grid two" id="space-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="nebula" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 8</span><h2>Nebula Foundry</h2><p>Condense Nebula Essence into fixed production and exponent research.</p></div><div class="headline-stat"><span>Nebula Essence</span><strong id="nebula-essence">0</strong></div></div>
+        <div class="card-grid two" id="nebula-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="reality" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 9</span><h2>Reality Archive</h2><p>Collect Reality Fragments and stabilize previous systems.</p></div><div class="headline-stat"><span>Reality Fragments</span><strong id="reality-fragments">0</strong></div></div>
+        <div class="card-grid two" id="reality-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="continuum" hidden>
+        <div class="page-heading"><div><span class="eyebrow">PRESTIGE 10</span><h2>Continuum</h2><p>Current endgame. Continuum Cores provide the strongest fixed upgrades in this build.</p></div><div class="headline-stat"><span>Continuum Cores</span><strong id="continuum-cores">0</strong></div></div>
+        <div class="card-grid two" id="continuum-grid"></div>
+      </section>
+
+      <section class="view" data-view-panel="settings" hidden>
+        <div class="page-heading"><div><span class="eyebrow" data-t="system">SYSTEM</span><h2 data-t="settings">Settings</h2><p data-t="settingsDesc">Display, saving, developer tools, and progress controls.</p></div></div>
         <div class="settings-grid">
-          <article class="settings-card"><p class="section-kicker" data-i18n="display">DISPLAY</p><h3 data-i18n="languageAndNotation">Language & Notation</h3><label for="language-select" data-i18n="language">Language</label><select id="language-select" class="select-control"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select><label for="notation-select" data-i18n="notation">Number notation</label><select id="notation-select" class="select-control"><option value="standard">Standard suffixes</option><option value="scientific">Scientific notation</option></select></article>
-          <article class="settings-card"><p class="section-kicker" data-i18n="saveData">SAVE DATA</p><h3 data-i18n="saveManagement">Save Management</h3><p data-i18n="saveDescription">The game autosaves every five seconds and supports up to 28 days of offline gains.</p><div class="settings-actions"><button id="manual-save-button" class="settings-button" type="button" data-i18n="manualSave">Manual Save</button><button id="export-save-button" class="settings-button" type="button" data-i18n="exportSave">Export Save</button><button id="import-save-button" class="settings-button" type="button" data-i18n="importSave">Import Save</button></div></article>
-          <article class="settings-card danger-settings-card"><p class="section-kicker" data-i18n="dangerZone">DANGER ZONE</p><h3 data-i18n="resetProgress">Reset Progress</h3><p data-i18n="resetDescription">Permanently delete every currency, Rune, upgrade, and unlocked world in this browser.</p><button id="reset-save-button" class="settings-button danger-button" type="button" data-i18n="resetEverything">Reset Everything</button></article>
+          <article class="settings-card"><h3 data-t="display">Display</h3><label for="language-select" data-t="language">Language</label><select id="language-select"><option value="en">English</option><option value="id">Bahasa Indonesia</option><option value="zh">中文</option><option value="ko">한국어</option><option value="ja">日本語</option></select><label for="notation-select" data-t="notation">Notation</label><select id="notation-select"><option value="standard">Standard</option><option value="scientific">Scientific</option><option value="mixed">Mixed Scientific</option></select></article>
+          <article class="settings-card"><h3 data-t="saveData">Save Data</h3><p id="last-save-text">Autosaves every 1 minute. Offline limit: 28 days.</p><div class="button-column"><button id="manual-save" class="settings-button" type="button">Manual Save</button><button id="export-save" class="settings-button" type="button">Export Save</button><button id="import-save" class="settings-button" type="button">Import Save</button></div></article>
+          <article class="settings-card"><h3 data-t="developerAccess">Developer Access</h3><p data-t="developerDesc">Testing tools for local development.</p><div id="developer-login"><input id="developer-password" type="password" placeholder="Password" autocomplete="off" /><button id="enable-developer" class="settings-button" type="button">Enable</button><p id="developer-message" class="inline-message"></p></div><div id="developer-panel" hidden><label for="developer-currency">Currency / value</label><select id="developer-currency"></select><label for="developer-amount">Amount</label><input id="developer-amount" type="text" value="1e6" /><div class="button-row"><button id="developer-add" class="settings-button" type="button">Add</button><button id="developer-set" class="settings-button" type="button">Set</button></div><button id="developer-unlock" class="settings-button" type="button">Unlock All Systems</button></div></article>
+          <article class="settings-card danger"><h3 data-t="resetProgress">Reset Progress</h3><p data-t="resetWarning">Deletes all local progress in this browser.</p><button id="reset-progress" class="settings-button danger-button" type="button">Reset Everything</button></article>
         </div>
       </section>
     </main>
   </div>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <dialog id="offline-dialog" class="game-dialog"><div class="dialog-content"><p class="section-kicker" data-i18n="welcomeBack">WELCOME BACK</p><h2 data-i18n="offlineProgress">Offline Progress</h2><div id="offline-results" class="offline-results"></div><button id="close-offline-dialog" class="purchase-button" type="button" data-i18n="continue">Continue</button></div></dialog>
-  <dialog id="reset-dialog" class="game-dialog"><div class="dialog-content"><p class="section-kicker" data-i18n="confirmReset">CONFIRM RESET</p><h2 data-i18n="deleteAllProgress">Delete all progress?</h2><p data-i18n="deleteWarning">This cannot be undone unless you exported the save first.</p><div class="dialog-actions"><button id="cancel-reset-button" class="settings-button" type="button" data-i18n="cancel">Cancel</button><button id="confirm-reset-button" class="settings-button danger-button" type="button" data-i18n="deleteSave">Delete Save</button></div></div></dialog>
-  <dialog id="save-data-dialog" class="game-dialog save-data-dialog"><div class="dialog-content"><p class="section-kicker" data-i18n="saveData">SAVE DATA</p><h2 id="save-data-title">Export Save</h2><p id="save-data-description">Copy this text and store it somewhere safe.</p><textarea id="save-data-textarea" class="save-textarea" spellcheck="false"></textarea><p id="save-data-error" class="error-message" aria-live="polite"></p><div class="dialog-actions"><button id="close-save-data-button" class="settings-button" type="button" data-i18n="close">Close</button><button id="apply-import-button" class="purchase-button" type="button" hidden data-i18n="importSave">Import Save</button></div></div></dialog>
-  <noscript><div class="noscript-message">JavaScript is required to play The World Incremental.</div></noscript>
+  <dialog id="offline-dialog" class="dialog"><div class="dialog-body"><span class="eyebrow">WELCOME BACK</span><h2>Offline Progress</h2><div id="offline-summary"></div><button id="close-offline" class="action-button" type="button">Continue</button></div></dialog>
+  <dialog id="text-dialog" class="dialog"><div class="dialog-body"><h2 id="text-dialog-title">Save Data</h2><textarea id="save-text" spellcheck="false"></textarea><p id="save-error" class="inline-message"></p><div class="button-row"><button id="close-text-dialog" class="settings-button" type="button">Close</button><button id="apply-import" class="action-button" type="button" hidden>Import</button></div></div></dialog>
+  <dialog id="confirm-dialog" class="dialog"><div class="dialog-body"><h2>Reset all progress?</h2><p>This cannot be undone unless you exported your save.</p><div class="button-row"><button id="cancel-reset" class="settings-button" type="button">Cancel</button><button id="confirm-reset" class="settings-button danger-button" type="button">Delete Save</button></div></div></dialog>
+
+  <noscript><div class="noscript">JavaScript is required to play.</div></noscript>
   <script src="script.js" defer></script>
 </body>
 </html>
