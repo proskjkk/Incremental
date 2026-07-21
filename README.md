@@ -1,5 +1,5 @@
-# The-World-Incremental (Rewriting)
-The World Incremental is a browser-based incremental game currently in early development.
+# Incremental (Rewriting)
+Incremental is a browser-based incremental game which is currently in early development.
 
 **Project Status**
 
