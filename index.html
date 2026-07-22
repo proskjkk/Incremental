@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Eonshift — a compact incremental game prototype.">
+  <title>Eonshift V0.0.1</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <div>
+          <div class="brand-name">EONSHIFT</div>
+          <div class="version-label">V0.0.1</div>
+        </div>
+      </div>
+
+      <div class="currency-strip" aria-label="Current currencies">
+        <div class="currency-chip power-chip">
+          <span class="currency-label">Power</span>
+          <strong id="headerPower">0</strong>
+          <small id="headerPowerRate">+1/s</small>
+        </div>
+        <div class="currency-chip prism-chip">
+          <span class="currency-label">Prism</span>
+          <strong id="headerPrism">0</strong>
+          <small id="headerPrismTimer">45.0s</small>
+        </div>
+        <div class="currency-chip rebirth-chip">
+          <span class="currency-label">Rebirth Points</span>
+          <strong id="headerRebirthPoints">0</strong>
+          <small>Permanent</small>
+        </div>
+      </div>
+
+      <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20.3h-3v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.04H5.3v-3h.14A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7V4.6h3v.1a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.14v3h-.14A1.7 1.7 0 0 0 19.4 15Z"></path>
+        </svg>
+      </button>
+    </header>
+
+    <aside class="sidebar" aria-label="Game navigation">
+      <button class="nav-button active" type="button" data-page="power">
+        <span class="nav-icon">P</span>
+        <span>Power</span>
+      </button>
+      <button class="nav-button" type="button" data-page="rebirth">
+        <span class="nav-icon">R</span>
+        <span>Rebirth</span>
+      </button>
+      <button class="nav-button" type="button" data-page="tree">
+        <span class="nav-icon prism-symbol">◇</span>
+        <span>Prism Tree</span>
+      </button>
+      <div class="sidebar-note">
+        <span>Autosave</span>
+        <strong id="saveStatus">Ready</strong>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <section class="page active" id="powerPage" data-page-panel="power">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">PRIMARY SYSTEM</p>
+            <h1>Power Generation</h1>
+            <p>Build a stable current, then reset it later for permanent Rebirth Points.</p>
+          </div>
+          <div class="status-pill">Automatic</div>
+        </div>
+
+        <div class="hero-stat power-hero">
+          <span>Current Power</span>
+          <strong id="powerAmount">0</strong>
+          <small id="powerPerSecond">1 Power per second</small>
+          <div class="flow-line"><span></span></div>
+        </div>
+
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">POWER UPGRADE</p>
+            <h2>Flux Condenser</h2>
+          </div>
+          <span class="level-badge">Level <strong id="powerUpgradeLevel">0</strong></span>
+        </div>
+
+        <article class="upgrade-card power-upgrade-card">
+          <div class="upgrade-icon power-icon" aria-hidden="true">+</div>
+          <div class="upgrade-copy">
+            <h3>Increase base Power generation</h3>
+            <p>Each level adds <strong>+1 base Power per second</strong>.</p>
+            <div class="effect-row">
+              <span>Current base</span>
+              <strong id="powerUpgradeEffect">1/s</strong>
+            </div>
+            <div class="effect-row muted-row">
+              <span>Next level</span>
+              <strong id="powerUpgradeNextEffect">2/s</strong>
+            </div>
+          </div>
+          <div class="purchase-column">
+            <span class="cost-label">Cost</span>
+            <strong class="cost-value" id="powerUpgradeCost">10 Power</strong>
+            <div class="button-row">
+              <button class="primary-button power-button" id="buyPowerUpgrade" type="button">Buy 1</button>
+              <button class="secondary-button" id="buyMaxPowerUpgrade" type="button">Buy Max</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="page" id="rebirthPage" data-page-panel="rebirth">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">PERMANENT RESET</p>
+            <h1>Rebirth</h1>
+            <p>Reset Power and the Flux Condenser to gain permanent Rebirth Points.</p>
+          </div>
+          <div class="status-pill rebirth-status">Permanent layer</div>
+        </div>
+
+        <div class="rebirth-grid">
+          <article class="rebirth-panel">
+            <div class="rebirth-orbit" aria-hidden="true">
+              <div class="orbit-ring"></div>
+              <span>R</span>
+            </div>
+            <p>You will receive</p>
+            <strong id="rebirthGain">0 Rebirth Points</strong>
+            <small id="rebirthRequirementText">Reach 1,000 Power to Rebirth.</small>
+            <button class="primary-button rebirth-button" id="rebirthButton" type="button" disabled>Rebirth</button>
+            <p class="reset-warning">Resets current Power and Flux Condenser levels. Prisms, tree nodes, Rebirth Points, and Rebirth Upgrades remain.</p>
+          </article>
+
+          <article class="upgrade-card rebirth-upgrade-card">
+            <div class="upgrade-icon rebirth-icon" aria-hidden="true">×</div>
+            <div class="upgrade-copy">
+              <div class="section-header compact-header">
+                <div>
+                  <p class="eyebrow">REBIRTH UPGRADE</p>
+                  <h2>Rebirth Amplifier</h2>
+                </div>
+                <span class="level-badge">Level <strong id="rebirthUpgradeLevel">0</strong></span>
+              </div>
+              <p>Each level doubles total Power generation.</p>
+              <div class="effect-row">
+                <span>Current multiplier</span>
+                <strong id="rebirthUpgradeEffect">×1</strong>
+              </div>
+              <div class="effect-row muted-row">
+                <span>Next level</span>
+                <strong id="rebirthUpgradeNextEffect">×2</strong>
+              </div>
+            </div>
+            <div class="purchase-column">
+              <span class="cost-label">Cost</span>
+              <strong class="cost-value" id="rebirthUpgradeCost">1 RP</strong>
+              <div class="button-row">
+                <button class="primary-button rebirth-button" id="buyRebirthUpgrade" type="button">Buy 1</button>
+                <button class="secondary-button" id="buyMaxRebirthUpgrade" type="button">Buy Max</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page tree-page" id="treePage" data-page-panel="tree">
+        <div class="page-heading tree-heading">
+          <div>
+            <p class="eyebrow">PRISM SYSTEM</p>
+            <h1>Prism Tree</h1>
+            <p>Purchase connected hexagonal nodes. Locked branches reveal themselves as you advance.</p>
+          </div>
+          <div class="tree-prism-balance"><span>Prisms</span><strong id="treePrismBalance">0</strong></div>
+        </div>
+
+        <div class="tree-layout">
+          <div class="tree-viewport" id="treeViewport" aria-label="Prism skill tree">
+            <div class="tree-grid-background"></div>
+            <svg class="tree-lines" id="treeLines" viewBox="0 0 1000 680" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div class="tree-nodes" id="treeNodes"></div>
+          </div>
+
+          <aside class="node-panel" id="nodePanel">
+            <div class="node-panel-placeholder" id="nodePlaceholder">
+              <div class="placeholder-hex">?</div>
+              <h2>Select a node</h2>
+              <p>Choose a visible hexagon to inspect its effect, cost, and prerequisites.</p>
+            </div>
+            <div class="node-panel-content hidden" id="nodeDetails">
+              <div class="selected-node-icon" id="selectedNodeIcon">◇</div>
+              <p class="eyebrow" id="selectedNodeCategory">PRISM NODE</p>
+              <h2 id="selectedNodeName">Node</h2>
+              <p id="selectedNodeDescription"></p>
+              <div class="node-info-list">
+                <div><span>Effect</span><strong id="selectedNodeEffect"></strong></div>
+                <div><span>Cost</span><strong id="selectedNodeCost"></strong></div>
+                <div><span>Status</span><strong id="selectedNodeStatus"></strong></div>
+                <div><span>Requires</span><strong id="selectedNodeRequirement"></strong></div>
+              </div>
+              <button class="primary-button prism-button" id="purchaseTreeNode" type="button">Purchase node</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-card">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">LOCAL DATA</p>
+          <h2 id="settingsTitle">Settings</h2>
+        </div>
+        <button class="icon-button close-button" id="closeSettingsButton" type="button" aria-label="Close settings">×</button>
+      </div>
+      <p>Your progress is stored in this browser. Autosave runs every 10 seconds.</p>
+      <div class="settings-actions">
+        <button class="secondary-button" id="saveNowButton" type="button">Save now</button>
+        <button class="secondary-button" id="exportSaveButton" type="button">Export save</button>
+        <button class="secondary-button" id="importSaveButton" type="button">Import save</button>
+        <button class="danger-button" id="resetSaveButton" type="button">Reset progress</button>
+      </div>
+      <textarea class="save-textarea hidden" id="saveTextarea" rows="5" aria-label="Save data"></textarea>
+      <div class="save-textarea-actions hidden" id="saveTextareaActions">
+        <button class="primary-button" id="confirmImportButton" type="button">Import pasted save</button>
+        <button class="secondary-button" id="cancelSaveTextButton" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
