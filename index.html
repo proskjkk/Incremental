@@ -34,6 +34,16 @@
           <strong id="headerRebirthPoints">0</strong>
           <small>Permanent</small>
         </div>
+        <div class="currency-chip insight-chip hidden" id="headerInsightChip">
+          <span class="currency-label">Insight</span>
+          <strong id="headerInsight">0</strong>
+          <small id="headerInsightRate">+0.02/s</small>
+        </div>
+        <div class="currency-chip wind-chip hidden" id="headerWindChip">
+          <span class="currency-label">Wind</span>
+          <strong id="headerWind">0</strong>
+          <small id="headerWindRate">0 stored</small>
+        </div>
       </div>
 
       <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings" title="Settings">
@@ -45,165 +55,58 @@
     </header>
 
     <aside class="sidebar" aria-label="Game navigation">
-      <button class="nav-button active" type="button" data-page="power">
-        <span class="nav-icon">P</span>
-        <span>Power</span>
-      </button>
-      <button class="nav-button" type="button" data-page="rebirth">
-        <span class="nav-icon">R</span>
-        <span>Rebirth</span>
-      </button>
-      <button class="nav-button" type="button" data-page="tree">
-        <span class="nav-icon prism-symbol">◇</span>
-        <span>Prism Tree</span>
-      </button>
-      <div class="sidebar-note">
-        <span>Autosave</span>
-        <strong id="saveStatus">Ready</strong>
-      </div>
+      <button class="nav-button active" type="button" data-page="power"><span class="nav-icon">P</span><span>Power</span></button>
+      <button class="nav-button" type="button" data-page="rebirth"><span class="nav-icon">R</span><span>Rebirth</span></button>
+      <button class="nav-button" type="button" data-page="tree"><span class="nav-icon prism-symbol">◇</span><span>Prism Tree</span></button>
+      <button class="nav-button" type="button" data-page="prestige"><span class="nav-icon">★</span><span>Prestige</span></button>
+      <button class="nav-button hidden" id="researchNav" type="button" data-page="research"><span class="nav-icon">I</span><span>Research</span></button>
+      <button class="nav-button hidden" id="windNav" type="button" data-page="wind"><span class="nav-icon">W</span><span>Wind</span></button>
+      <button class="nav-button hidden" id="runesNav" type="button" data-page="runes"><span class="nav-icon">◈</span><span>Runes</span></button>
+      <div class="sidebar-note"><span>Autosave</span><strong id="saveStatus">Ready</strong></div>
     </aside>
 
     <main class="main-content">
       <section class="page active" id="powerPage" data-page-panel="power">
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">PRIMARY SYSTEM</p>
-            <h1>Power Generation</h1>
-            <p>Build Power, improve production, then reset for permanent Rebirth Points.</p>
-          </div>
+        <div class="page-heading"><div><p class="eyebrow">PRIMARY SYSTEM</p><h1>Power Generation</h1><p>Build Power, improve production, then reset for permanent Rebirth Points.</p></div></div>
+        <div class="hero-stat power-hero"><span>Current Power</span><strong id="powerAmount">0</strong><small id="powerPerSecond">1 Power per second</small><div class="flow-line"><span></span></div></div>
+
+        <div class="automation-strip hidden" id="powerAutomationPanel">
+          <div><p class="eyebrow">PRESTIGE AUTOMATION</p><strong>Power Upgrade Automation</strong><small>Automatically purchases affordable Flux Condenser and Power Resonator levels.</small></div>
+          <label class="toggle-control"><input type="checkbox" id="autoPowerToggle"><span>Enabled</span></label>
         </div>
 
-        <div class="hero-stat power-hero">
-          <span>Current Power</span>
-          <strong id="powerAmount">0</strong>
-          <small id="powerPerSecond">1 Power per second</small>
-          <div class="flow-line"><span></span></div>
-        </div>
-
-        <div class="section-header compact-section-heading">
-          <div>
-            <p class="eyebrow">POWER UPGRADES</p>
-            <h2>Production Modules</h2>
-          </div>
-        </div>
-
+        <div class="section-header compact-section-heading"><div><p class="eyebrow">POWER UPGRADES</p><h2>Production Modules</h2></div></div>
         <div class="upgrade-grid">
           <article class="compact-upgrade-card power-upgrade-card">
-            <div class="compact-upgrade-topline">
-              <div class="upgrade-icon power-icon" aria-hidden="true">+</div>
-              <span class="level-badge">Level <strong id="powerUpgradeLevel">0</strong></span>
-            </div>
-            <div class="compact-upgrade-copy">
-              <p class="eyebrow">POWER UPGRADE</p>
-              <h3>Flux Condenser</h3>
-              <p>Adds <strong>+1 base Power/s</strong> per level.</p>
-              <div class="effect-row"><span>Current</span><strong id="powerUpgradeEffect">+0/s</strong></div>
-              <div class="effect-row muted-row"><span>Next</span><strong id="powerUpgradeNextEffect">+1/s</strong></div>
-            </div>
-            <div class="compact-purchase-row">
-              <div><span>Cost</span><strong id="powerUpgradeCost">5 Power</strong></div>
-              <div class="button-row">
-                <button class="primary-button power-button" id="buyPowerUpgrade" type="button">Buy 1</button>
-                <button class="secondary-button" id="buyMaxPowerUpgrade" type="button">Buy Max</button>
-              </div>
-            </div>
+            <div class="compact-upgrade-topline"><div class="upgrade-icon power-icon" aria-hidden="true">+</div><span class="level-badge">Level <strong id="powerUpgradeLevel">0</strong></span></div>
+            <div class="compact-upgrade-copy"><p class="eyebrow">POWER UPGRADE</p><h3>Flux Condenser</h3><p>Adds <strong>+1 base Power/s</strong> per level.</p><div class="effect-row"><span>Current</span><strong id="powerUpgradeEffect">+0/s</strong></div><div class="effect-row muted-row"><span>Next</span><strong id="powerUpgradeNextEffect">+1/s</strong></div></div>
+            <div class="compact-purchase-row"><div><span>Cost</span><strong id="powerUpgradeCost">5 Power</strong></div><div class="button-row"><button class="primary-button power-button" id="buyPowerUpgrade" type="button">Buy 1</button><button class="secondary-button" id="buyMaxPowerUpgrade" type="button">Buy Max</button></div></div>
           </article>
-
           <article class="compact-upgrade-card power-upgrade-card resonator-card">
-            <div class="compact-upgrade-topline">
-              <div class="upgrade-icon power-icon" aria-hidden="true">×</div>
-              <span class="level-badge">Level <strong id="powerResonatorLevel">0</strong></span>
-            </div>
-            <div class="compact-upgrade-copy">
-              <p class="eyebrow">POWER UPGRADE</p>
-              <h3>Power Resonator</h3>
-              <p>Multiplies total Power by <strong>×1.25</strong> per level.</p>
-              <div class="effect-row"><span>Current</span><strong id="powerResonatorEffect">×1</strong></div>
-              <div class="effect-row muted-row"><span>Next</span><strong id="powerResonatorNextEffect">×1.25</strong></div>
-            </div>
-            <div class="compact-purchase-row">
-              <div><span>Cost</span><strong id="powerResonatorCost">20 Power</strong></div>
-              <div class="button-row">
-                <button class="primary-button power-button" id="buyPowerResonator" type="button">Buy 1</button>
-                <button class="secondary-button" id="buyMaxPowerResonator" type="button">Buy Max</button>
-              </div>
-            </div>
+            <div class="compact-upgrade-topline"><div class="upgrade-icon power-icon" aria-hidden="true">×</div><span class="level-badge">Lv <strong id="powerResonatorLevel">0 / 50</strong></span></div>
+            <div class="compact-upgrade-copy"><p class="eyebrow">POWER UPGRADE</p><h3>Power Resonator</h3><p>Multiplies total Power by <strong>×1.25</strong> per level. Its cap can be raised later.</p><div class="effect-row"><span>Current</span><strong id="powerResonatorEffect">×1</strong></div><div class="effect-row muted-row"><span>Next</span><strong id="powerResonatorNextEffect">×1.25</strong></div></div>
+            <div class="compact-purchase-row"><div><span>Cost</span><strong id="powerResonatorCost">20 Power</strong></div><div class="button-row"><button class="primary-button power-button" id="buyPowerResonator" type="button">Buy 1</button><button class="secondary-button" id="buyMaxPowerResonator" type="button">Buy Max</button></div></div>
           </article>
         </div>
       </section>
 
       <section class="page" id="rebirthPage" data-page-panel="rebirth">
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">PERMANENT RESET</p>
-            <h1>Rebirth</h1>
-            <p>Every 1,000 Power grants exactly 1 Rebirth Point.</p>
-          </div>
-          <div class="status-pill rebirth-status">Permanent layer</div>
-        </div>
-
+        <div class="page-heading"><div><p class="eyebrow">PERMANENT RESET</p><h1>Rebirth</h1><p>Every 1,000 Power grants exactly 1 Rebirth Point before multipliers.</p></div><div class="status-pill rebirth-status">Permanent layer</div></div>
+        <div class="automation-strip hidden" id="rebirthAutomationPanel"><div><p class="eyebrow">PRESTIGE AUTOMATION</p><strong>Automatic Rebirth</strong><small>Rebirths when at least 1 RP can be gained. Checked once per second.</small></div><label class="toggle-control"><input type="checkbox" id="autoRebirthToggle"><span>Enabled</span></label></div>
         <div class="rebirth-layout">
-          <article class="rebirth-panel">
-            <div class="rebirth-orbit" aria-hidden="true">
-              <div class="orbit-ring"></div>
-              <span>R</span>
-            </div>
-            <p>You will receive</p>
-            <strong id="rebirthGain">0 Rebirth Points</strong>
-            <small id="rebirthRequirementText">Reach 1,000 Power to Rebirth.</small>
-            <button class="primary-button rebirth-button" id="rebirthButton" type="button" disabled>Rebirth</button>
-            <p class="reset-warning">Resets current Power and both Power Upgrade levels. Prisms, tree nodes, Rebirth Points, and Rebirth Upgrades remain.</p>
-          </article>
-
+          <article class="rebirth-panel"><div class="rebirth-orbit" aria-hidden="true"><div class="orbit-ring"></div><span>R</span></div><p>You will receive</p><strong id="rebirthGain">0 Rebirth Points</strong><small id="rebirthRequirementText">Reach 1,000 Power to Rebirth.</small><button class="primary-button rebirth-button" id="rebirthButton" type="button" disabled>Rebirth</button><p class="reset-warning">Resets current Power and both Power Upgrade levels. Prisms, tree nodes, Rebirth Points, and Rebirth Upgrades remain.</p></article>
           <div class="rebirth-upgrade-column">
-            <div class="section-header compact-section-heading">
-              <div>
-                <p class="eyebrow">REBIRTH UPGRADES</p>
-                <h2>Permanent Modules</h2>
-              </div>
-            </div>
-
+            <div class="section-header compact-section-heading"><div><p class="eyebrow">REBIRTH UPGRADES</p><h2>Permanent Modules</h2></div></div>
             <div class="upgrade-grid rebirth-upgrade-grid">
               <article class="compact-upgrade-card rebirth-upgrade-card">
-                <div class="compact-upgrade-topline">
-                  <div class="upgrade-icon rebirth-icon" aria-hidden="true">×</div>
-                  <span class="level-badge">Level <strong id="rebirthUpgradeLevel">0</strong></span>
-                </div>
-                <div class="compact-upgrade-copy">
-                  <p class="eyebrow">REBIRTH UPGRADE</p>
-                  <h3>Rebirth Amplifier</h3>
-                  <p>Multiplies total Power by <strong>×1.5</strong> per level.</p>
-                  <div class="effect-row"><span>Current</span><strong id="rebirthUpgradeEffect">×1</strong></div>
-                  <div class="effect-row muted-row"><span>Next</span><strong id="rebirthUpgradeNextEffect">×1.5</strong></div>
-                </div>
-                <div class="compact-purchase-row">
-                  <div><span>Cost</span><strong id="rebirthUpgradeCost">1 RP</strong></div>
-                  <div class="button-row">
-                    <button class="primary-button rebirth-button" id="buyRebirthUpgrade" type="button">Buy 1</button>
-                    <button class="secondary-button" id="buyMaxRebirthUpgrade" type="button">Buy Max</button>
-                  </div>
-                </div>
+                <div class="compact-upgrade-topline"><div class="upgrade-icon rebirth-icon" aria-hidden="true">×</div><span class="level-badge">Lv <strong id="rebirthUpgradeLevel">0 / 35</strong></span></div>
+                <div class="compact-upgrade-copy"><p class="eyebrow">REBIRTH UPGRADE</p><h3>Rebirth Amplifier</h3><p>Multiplies total Power by <strong>×1.5</strong> per level. Its cap can be raised later.</p><div class="effect-row"><span>Current</span><strong id="rebirthUpgradeEffect">×1</strong></div><div class="effect-row muted-row"><span>Next</span><strong id="rebirthUpgradeNextEffect">×1.5</strong></div></div>
+                <div class="compact-purchase-row"><div><span>Cost</span><strong id="rebirthUpgradeCost">1 RP</strong></div><div class="button-row"><button class="primary-button rebirth-button" id="buyRebirthUpgrade" type="button">Buy 1</button><button class="secondary-button" id="buyMaxRebirthUpgrade" type="button">Buy Max</button></div></div>
               </article>
-
               <article class="compact-upgrade-card rebirth-upgrade-card core-card">
-                <div class="compact-upgrade-topline">
-                  <div class="upgrade-icon rebirth-icon" aria-hidden="true">+</div>
-                  <span class="level-badge">Level <strong id="rebirthCoreLevel">0</strong></span>
-                </div>
-                <div class="compact-upgrade-copy">
-                  <p class="eyebrow">REBIRTH UPGRADE</p>
-                  <h3>Rebirth Core</h3>
-                  <p>Adds <strong>+2 base Power/s</strong> per level.</p>
-                  <div class="effect-row"><span>Current</span><strong id="rebirthCoreEffect">+0/s</strong></div>
-                  <div class="effect-row muted-row"><span>Next</span><strong id="rebirthCoreNextEffect">+2/s</strong></div>
-                </div>
-                <div class="compact-purchase-row">
-                  <div><span>Cost</span><strong id="rebirthCoreCost">2 RP</strong></div>
-                  <div class="button-row">
-                    <button class="primary-button rebirth-button" id="buyRebirthCore" type="button">Buy 1</button>
-                    <button class="secondary-button" id="buyMaxRebirthCore" type="button">Buy Max</button>
-                  </div>
-                </div>
+                <div class="compact-upgrade-topline"><div class="upgrade-icon rebirth-icon" aria-hidden="true">+</div><span class="level-badge">Level <strong id="rebirthCoreLevel">0</strong></span></div>
+                <div class="compact-upgrade-copy"><p class="eyebrow">REBIRTH UPGRADE</p><h3>Rebirth Core</h3><p>Adds <strong>+2 base Power/s</strong> per level.</p><div class="effect-row"><span>Current</span><strong id="rebirthCoreEffect">+0/s</strong></div><div class="effect-row muted-row"><span>Next</span><strong id="rebirthCoreNextEffect">+2/s</strong></div></div>
+                <div class="compact-purchase-row"><div><span>Cost</span><strong id="rebirthCoreCost">2 RP</strong></div><div class="button-row"><button class="primary-button rebirth-button" id="buyRebirthCore" type="button">Buy 1</button><button class="secondary-button" id="buyMaxRebirthCore" type="button">Buy Max</button></div></div>
               </article>
             </div>
           </div>
@@ -211,137 +114,73 @@
       </section>
 
       <section class="page tree-page" id="treePage" data-page-panel="tree">
-        <div class="page-heading tree-heading">
-          <div>
-            <p class="eyebrow">PRISM SYSTEM</p>
-            <h1>Prism Tree</h1>
-            <p>Follow irregular branches for Power, Prism, and offline progression upgrades.</p>
-          </div>
-          <div class="tree-prism-balance"><span>Prisms</span><strong id="treePrismBalance">0</strong></div>
-        </div>
-
+        <div class="page-heading tree-heading"><div><p class="eyebrow">PRISM SYSTEM</p><h1>Prism Tree</h1><p>Branches reveal only when their prerequisites and progression gates are met.</p></div><div class="tree-prism-balance"><span>Prisms</span><strong id="treePrismBalance">0</strong></div></div>
         <div class="tree-layout">
-          <div class="tree-viewport" id="treeViewport" aria-label="Prism skill tree">
-            <div class="tree-grid-background"></div>
-            <svg class="tree-lines" id="treeLines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true"></svg>
-            <div class="tree-nodes" id="treeNodes"></div>
-          </div>
-
-          <aside class="node-panel" id="nodePanel">
-            <div class="node-panel-placeholder" id="nodePlaceholder">
-              <div class="placeholder-hex">?</div>
-              <h2>Select a node</h2>
-              <p>Choose a visible hexagon to inspect its effect, cost, and prerequisite.</p>
-            </div>
-            <div class="node-panel-content hidden" id="nodeDetails">
-              <div class="selected-node-icon" id="selectedNodeIcon">◇</div>
-              <p class="eyebrow" id="selectedNodeCategory">PRISM NODE</p>
-              <h2 id="selectedNodeName">Node</h2>
-              <p id="selectedNodeDescription"></p>
-              <div class="node-info-list">
-                <div><span>Effect</span><strong id="selectedNodeEffect"></strong></div>
-                <div><span>Cost</span><strong id="selectedNodeCost"></strong></div>
-                <div><span>Status</span><strong id="selectedNodeStatus"></strong></div>
-                <div><span>Requires</span><strong id="selectedNodeRequirement"></strong></div>
-              </div>
-              <button class="primary-button prism-button" id="purchaseTreeNode" type="button">Purchase node</button>
-            </div>
-          </aside>
+          <div class="tree-viewport" id="treeViewport" aria-label="Prism skill tree"><div class="tree-grid-background"></div><svg class="tree-lines" id="treeLines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true"></svg><div class="tree-nodes" id="treeNodes"></div></div>
+          <aside class="node-panel" id="nodePanel"><div class="node-panel-placeholder" id="nodePlaceholder"><div class="placeholder-hex">?</div><h2>Select a node</h2><p>Choose a visible hexagon to inspect its effect, price, level, and prerequisite.</p></div><div class="node-panel-content hidden" id="nodeDetails"><div class="selected-node-icon" id="selectedNodeIcon">◇</div><p class="eyebrow" id="selectedNodeCategory">PRISM NODE</p><h2 id="selectedNodeName">Node</h2><p id="selectedNodeDescription"></p><div class="node-info-list"><div><span>Effect</span><strong id="selectedNodeEffect"></strong></div><div><span>Cost</span><strong id="selectedNodeCost"></strong></div><div><span>Status</span><strong id="selectedNodeStatus"></strong></div><div><span>Requires</span><strong id="selectedNodeRequirement"></strong></div></div><button class="primary-button prism-button" id="purchaseTreeNode" type="button">Purchase node</button></div></aside>
         </div>
+      </section>
+
+      <section class="page" id="prestigePage" data-page-panel="prestige">
+        <div class="page-heading"><div><p class="eyebrow">MILESTONE RESET</p><h1>Prestige</h1><p>Prestige is a permanent milestone, not a currency. Tier rewards are defined as data so later tiers can be added without rebuilding the system.</p></div><div class="status-pill prestige-status">Tier <span id="prestigeLevelLabel">0</span></div></div>
+        <div class="prestige-layout">
+          <article class="prestige-goal-card">
+            <div class="prestige-emblem">★</div><p id="prestigeTierName">Tier 1 — First Shift</p><strong id="prestigeRequirement">1.00e30 Power</strong><div class="prestige-progress-track"><span id="prestigeProgressFill"></span></div><small id="prestigeProgressText">0% of requirement</small><button class="primary-button prestige-button" id="prestigeButton" type="button" disabled>Claim Prestige Tier 1</button><p class="reset-warning">Resets Power, all Power Upgrade levels, Rebirth Points, and all Rebirth Upgrade levels. Prisms and the Prism Tree remain.</p>
+          </article>
+          <article class="reward-list-card"><p class="eyebrow">TIER REWARDS</p><h2 id="prestigeRewardHeading">First Shift rewards</h2><div class="reward-list" id="prestigeRewardList"></div><div class="prestige-count"><span>Total Prestiges</span><strong id="totalPrestiges">0</strong></div></article>
+        </div>
+      </section>
+
+      <section class="page tree-page" id="researchPage" data-page-panel="research">
+        <div class="page-heading tree-heading"><div><p class="eyebrow">PRESTIGE SYSTEM</p><h1>Research</h1><p>Insight accumulates passively. Research nodes are permanent, one-time discoveries.</p></div><div class="tree-prism-balance insight-balance"><span>Insight</span><strong id="researchInsightBalance">0</strong></div></div>
+        <div class="tree-layout research-layout">
+          <div class="tree-viewport research-viewport" id="researchViewport" aria-label="Research tree"><div class="tree-grid-background"></div><svg class="tree-lines" id="researchLines" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true"></svg><div class="tree-nodes" id="researchNodes"></div></div>
+          <aside class="node-panel"><div class="node-panel-placeholder" id="researchPlaceholder"><div class="placeholder-hex">I</div><h2>Select research</h2><p>Choose a visible research node to inspect its permanent effect.</p></div><div class="node-panel-content hidden" id="researchDetails"><div class="selected-node-icon insight-node-icon" id="selectedResearchIcon">I</div><p class="eyebrow" id="selectedResearchCategory">RESEARCH</p><h2 id="selectedResearchName">Node</h2><p id="selectedResearchDescription"></p><div class="node-info-list"><div><span>Effect</span><strong id="selectedResearchEffect"></strong></div><div><span>Cost</span><strong id="selectedResearchCost"></strong></div><div><span>Status</span><strong id="selectedResearchStatus"></strong></div><div><span>Requires</span><strong id="selectedResearchRequirement"></strong></div></div><button class="primary-button insight-button" id="purchaseResearchNode" type="button">Research node</button></div></aside>
+        </div>
+      </section>
+
+      <section class="page" id="windPage" data-page-panel="wind">
+        <div class="page-heading"><div><p class="eyebrow">PRESTIGE SYSTEM</p><h1>Wind Generation</h1><p>Turbines fill a capped buffer. Collect it manually until Wind Auto-Collection is researched.</p></div><div class="status-pill wind-status">Wind <span id="windAmount">0</span></div></div>
+        <div class="wind-layout">
+          <article class="wind-buffer-card"><div class="wind-orbit">W</div><p>Storage Buffer</p><strong><span id="windStored">0</span> / <span id="windStorageCap">100</span></strong><div class="storage-track"><span id="windStorageFill"></span></div><small id="windProductionRate">0 Wind/s · 0 wasted</small><button class="primary-button wind-button" id="collectWindButton" type="button">Collect <span id="windCollectAmount">10</span> Wind</button><p class="auto-collection-note" id="windAutoStatus">Manual collection required</p></article>
+          <article class="compact-upgrade-card wind-upgrade-card"><div class="compact-upgrade-topline"><div class="upgrade-icon wind-icon">W</div><span class="level-badge">Lv <strong id="windTurbineLevel">0 / 10</strong></span></div><div class="compact-upgrade-copy"><p class="eyebrow">WIND TURBINE</p><h3>Turbine Array</h3><p>Each turbine generates base Wind every second into the storage buffer.</p><div class="effect-row"><span>Current</span><strong id="windTurbineEffect">0/s</strong></div><div class="effect-row muted-row"><span>Next</span><strong id="windTurbineNextEffect">0.25/s</strong></div></div><div class="compact-purchase-row"><div><span>Cost</span><strong id="windTurbineCost">100K Power</strong></div><div class="button-row"><button class="primary-button wind-button" id="buyWindTurbine" type="button">Buy 1</button><button class="secondary-button" id="buyMaxWindTurbine" type="button">Buy Max</button></div></div></article>
+        </div>
+      </section>
+
+      <section class="page" id="runesPage" data-page-panel="runes">
+        <div class="page-heading"><div><p class="eyebrow">WIND GACHA SYSTEM</p><h1>Runes</h1><p>Every owned Rune is active simultaneously. Duplicate rolls grant EXP with a steep level curve.</p></div><div class="status-pill rune-status">Owned <span id="ownedRuneCount">0</span>/<span id="totalRuneCount">12</span></div></div>
+        <div class="rune-control-grid">
+          <article class="rune-roll-card"><div class="rune-orb">◈</div><p>Roll cost</p><strong id="runeRollCost">10 Wind</strong><small id="runeCooldownText">Ready</small><div class="button-row rune-roll-buttons"><button class="primary-button rune-button" id="rollRuneButton" type="button">Roll ×<span id="runeBulkLabel">1</span></button><button class="secondary-button" id="autoRuneButton" type="button" disabled>Auto-roll locked</button></div><div class="pity-track"><span id="runePityFill"></span></div><small id="runePityText">Rare pity: 0 / 75</small></article>
+          <article class="rune-modifier-card"><p class="eyebrow">ROLL MODIFIERS</p><div class="rune-modifier-list"><div><span>Rune Luck</span><strong id="runeLuckText">×1.00 odds</strong></div><div><span>Rune Speed</span><strong id="runeSpeedText">3.00s cooldown</strong></div><div><span>Rune Bulk</span><strong id="runeBulkText">1 per roll</strong></div></div><p class="rune-last-result" id="runeLastResult">No Rune rolled yet.</p></article>
+        </div>
+        <div class="section-header compact-section-heading"><div><p class="eyebrow">PASSIVE COLLECTION</p><h2>Owned Runes</h2></div></div>
+        <div class="rune-grid" id="runeGrid"></div>
       </section>
     </main>
   </div>
 
   <div class="modal-backdrop hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="modal-card settings-modal-card">
-      <div class="modal-heading">
-        <div>
-          <p class="eyebrow">LOCAL DATA</p>
-          <h2 id="settingsTitle">Settings</h2>
-        </div>
-        <button class="icon-button close-button" id="closeSettingsButton" type="button" aria-label="Close settings">×</button>
-      </div>
+      <div class="modal-heading"><div><p class="eyebrow">LOCAL DATA</p><h2 id="settingsTitle">Settings</h2></div><button class="icon-button close-button" id="closeSettingsButton" type="button" aria-label="Close settings">×</button></div>
       <p>Your progress is stored in this browser. Autosave runs every 10 seconds.</p>
-
-      <div class="settings-actions">
-        <button class="secondary-button" id="saveNowButton" type="button">Save now</button>
-        <button class="secondary-button" id="exportSaveButton" type="button">Export save</button>
-        <button class="secondary-button" id="importSaveButton" type="button">Import save</button>
-        <button class="danger-button" id="resetSaveButton" type="button">Reset progress</button>
-      </div>
+      <div class="settings-actions"><button class="secondary-button" id="saveNowButton" type="button">Save now</button><button class="secondary-button" id="exportSaveButton" type="button">Export save</button><button class="secondary-button" id="importSaveButton" type="button">Import save</button><button class="danger-button" id="resetSaveButton" type="button">Reset progress</button></div>
       <textarea class="save-textarea hidden" id="saveTextarea" rows="5" aria-label="Save data"></textarea>
-      <div class="save-textarea-actions hidden" id="saveTextareaActions">
-        <button class="primary-button" id="confirmImportButton" type="button">Import pasted save</button>
-        <button class="secondary-button" id="cancelSaveTextButton" type="button">Cancel</button>
-      </div>
+      <div class="save-textarea-actions hidden" id="saveTextareaActions"><button class="primary-button" id="confirmImportButton" type="button">Import pasted save</button><button class="secondary-button" id="cancelSaveTextButton" type="button">Cancel</button></div>
 
       <section class="developer-access-section">
-        <div class="settings-section-heading">
-          <div>
-            <p class="eyebrow">TESTING</p>
-            <h3>Developer Access</h3>
-          </div>
-          <span id="developerStatus">Locked</span>
-        </div>
-
-        <div class="developer-login" id="developerLogin">
-          <label for="developerPasscode">Passcode</label>
-          <div class="inline-control-row">
-            <input id="developerPasscode" type="password" autocomplete="off" placeholder="Enter developer passcode">
-            <button class="secondary-button" id="unlockDeveloperButton" type="button">Unlock</button>
-          </div>
-        </div>
-
+        <div class="settings-section-heading"><div><p class="eyebrow">TESTING</p><h3>Developer Access</h3></div><span id="developerStatus">Locked</span></div>
+        <div class="developer-login" id="developerLogin"><label for="developerPasscode">Passcode</label><div class="inline-control-row"><input id="developerPasscode" type="password" autocomplete="off" placeholder="Enter developer passcode"><button class="secondary-button" id="unlockDeveloperButton" type="button">Unlock</button></div></div>
         <div class="developer-tools hidden" id="developerTools">
           <div class="developer-tool-grid">
-            <label>
-              Resource
-              <select id="developerResourceSelect">
-                <option value="power">Power</option>
-                <option value="prisms">Prisms</option>
-                <option value="rebirthPoints">Rebirth Points</option>
-              </select>
-            </label>
-            <label>
-              Amount
-              <input id="developerResourceAmount" type="text" inputmode="decimal" value="1000" placeholder="1000 or 1e100K">
-            </label>
-            <div class="developer-action-pair">
-              <button class="secondary-button" id="developerAddResource" type="button">Add</button>
-              <button class="secondary-button" id="developerSetResource" type="button">Set</button>
-            </div>
-
-            <label>
-              Upgrade
-              <select id="developerUpgradeSelect">
-                <option value="powerUpgradeLevel">Flux Condenser</option>
-                <option value="powerResonatorLevel">Power Resonator</option>
-                <option value="rebirthUpgradeLevel">Rebirth Amplifier</option>
-                <option value="rebirthCoreLevel">Rebirth Core</option>
-              </select>
-            </label>
-            <label>
-              Levels
-              <input id="developerUpgradeAmount" type="number" min="0" step="1" value="1">
-            </label>
-            <div class="developer-action-pair">
-              <button class="secondary-button" id="developerAddUpgrade" type="button">Add levels</button>
-              <button class="secondary-button" id="developerSetUpgrade" type="button">Set level</button>
-            </div>
+            <label>Resource<select id="developerResourceSelect"><option value="power">Power</option><option value="prisms">Prisms</option><option value="rebirthPoints">Rebirth Points</option><option value="insight">Insight</option><option value="wind">Wind</option><option value="windStorage">Wind Storage Buffer</option></select></label>
+            <label>Amount<input id="developerResourceAmount" type="text" inputmode="decimal" value="1000" placeholder="1000 or 1e100K"></label>
+            <div class="developer-action-pair"><button class="secondary-button" id="developerAddResource" type="button">Add</button><button class="secondary-button" id="developerSetResource" type="button">Set</button></div>
+            <label>Upgrade<select id="developerUpgradeSelect"><option value="powerUpgradeLevel">Flux Condenser</option><option value="powerResonatorLevel">Power Resonator</option><option value="rebirthUpgradeLevel">Rebirth Amplifier</option><option value="rebirthCoreLevel">Rebirth Core</option><option value="windTurbineLevel">Wind Turbines</option></select></label>
+            <label>Levels<input id="developerUpgradeAmount" type="number" min="0" step="1" value="1"></label>
+            <div class="developer-action-pair"><button class="secondary-button" id="developerAddUpgrade" type="button">Add levels</button><button class="secondary-button" id="developerSetUpgrade" type="button">Set level</button></div>
           </div>
-
-          <div class="developer-wide-actions">
-            <button class="secondary-button" id="developerUnlockTree" type="button">Unlock all tree nodes</button>
-            <button class="secondary-button" id="developerResetTree" type="button">Reset tree nodes</button>
-          </div>
-
-          <div class="developer-offline-test">
-            <label for="developerOfflineHours">Simulate closed-game offline time</label>
-            <div class="inline-control-row">
-              <input id="developerOfflineHours" type="number" min="0.01" step="0.25" value="1">
-              <button class="secondary-button" id="developerSimulateOffline" type="button">Simulate</button>
-            </div>
-          </div>
+          <div class="developer-wide-actions"><button class="secondary-button" id="developerUnlockTree" type="button">Max Prism Tree</button><button class="secondary-button" id="developerResetTree" type="button">Reset Prism Tree</button><button class="secondary-button" id="developerUnlockPrestige" type="button">Grant Prestige 1</button><button class="secondary-button" id="developerUnlockResearch" type="button">Buy all Research</button><button class="secondary-button" id="developerGrantRunes" type="button">Grant all Runes</button></div>
+          <div class="developer-offline-test"><label for="developerOfflineHours">Simulate closed-game offline time</label><div class="inline-control-row"><input id="developerOfflineHours" type="number" min="0.01" step="0.25" value="1"><button class="secondary-button" id="developerSimulateOffline" type="button">Simulate</button></div></div>
         </div>
       </section>
     </div>
@@ -349,36 +188,15 @@
 
   <div class="modal-backdrop hidden" id="offlineModal" role="dialog" aria-modal="true" aria-labelledby="offlineTitle">
     <div class="modal-card offline-modal-card">
-      <div class="modal-heading">
-        <div>
-          <p class="eyebrow">WELCOME BACK</p>
-          <h2 id="offlineTitle">Offline Progress</h2>
-        </div>
-        <button class="icon-button close-button" id="closeOfflineButton" type="button" aria-label="Close offline progress">×</button>
-      </div>
-
+      <div class="modal-heading"><div><p class="eyebrow">WELCOME BACK</p><h2 id="offlineTitle">Offline Progress</h2></div><button class="icon-button close-button" id="closeOfflineButton" type="button" aria-label="Close offline progress">×</button></div>
       <p class="offline-duration-copy">You were away for <strong id="offlineElapsedText">0s</strong>.</p>
-      <div class="offline-summary-grid">
-        <div class="offline-stat"><span>Applied time</span><strong id="offlineAppliedText">0s</strong></div>
-        <div class="offline-stat"><span>Efficiency</span><strong id="offlineEfficiencyText">85%</strong></div>
-        <div class="offline-stat"><span>Power gained</span><strong id="offlinePowerGain">0</strong></div>
-        <div class="offline-stat"><span>Prisms gained</span><strong id="offlinePrismGain">0</strong></div>
-      </div>
-
-      <div class="offline-chart-wrap">
-        <div class="offline-chart-heading">
-          <span>Power accumulated during offline progress</span>
-          <small id="offlineLimitNote">6h limit</small>
-        </div>
-        <canvas id="offlineChart" width="900" height="360" aria-label="Graph of offline Power accumulation"></canvas>
-      </div>
-
+      <div class="offline-summary-grid"><div class="offline-stat"><span>Applied time</span><strong id="offlineAppliedText">0s</strong></div><div class="offline-stat"><span>Efficiency</span><strong id="offlineEfficiencyText">85%</strong></div><div class="offline-stat"><span>Power gained</span><strong id="offlinePowerGain">0</strong></div><div class="offline-stat"><span>Prisms gained</span><strong id="offlinePrismGain">0</strong></div></div>
+      <div class="offline-chart-wrap"><div class="offline-chart-heading"><span>Power accumulated during offline progress</span><small id="offlineLimitNote">6h limit</small></div><canvas id="offlineChart" width="900" height="360" aria-label="Graph of offline Power accumulation"></canvas></div>
       <button class="primary-button offline-continue-button" id="offlineContinueButton" type="button">Continue</button>
     </div>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
   <script src="script.js"></script>
 </body>
 </html>
