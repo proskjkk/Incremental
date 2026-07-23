@@ -1223,3 +1223,7 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+.upgrade-section-gap {
+  margin-top: 22px;
+}

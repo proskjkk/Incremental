@@ -10,7 +10,7 @@
 const GAME_VERSION = "0.0.1";
 const SAVE_KEY = "eonshift-save-v001";
 const AUTOSAVE_INTERVAL_MS = 10_000;
-const BASE_PRISM_INTERVAL = 45;
+const BASE_PRISM_INTERVAL = 40;
 const BASE_REBIRTH_REQUIREMENT = 1_000;
 
 const DEFAULT_STATE = Object.freeze({
@@ -19,7 +19,9 @@ const DEFAULT_STATE = Object.freeze({
   prisms: 0,
   rebirthPoints: 0,
   powerUpgradeLevel: 0,
+  powerUpgrade2Level: 0,
   rebirthUpgradeLevel: 0,
+  rebirthUpgrade2Level: 0,
   prismProgress: 0,
   purchasedTreeNodes: [],
   totalRebirths: 0,
@@ -55,7 +57,7 @@ const TREE_NODES = {
     icon: "P",
     x: 28,
     y: 34,
-    cost: 3,
+    cost: 2,
     prerequisites: ["originLens"],
     description: "Split the current into a denser Power stream.",
     effectText: "×1.50 total Power generation",
@@ -69,10 +71,10 @@ const TREE_NODES = {
     icon: "−",
     x: 28,
     y: 66,
-    cost: 3,
+    cost: 2,
     prerequisites: ["originLens"],
-    description: "Reduce material loss inside the Flux Condenser.",
-    effectText: "Power Upgrade costs are 10% cheaper",
+    description: "Reduce material loss across both Power Upgrades.",
+    effectText: "All Power Upgrade costs are 10% cheaper",
     effect: "powerCostMultiplier",
     value: 0.9
   },
@@ -83,12 +85,12 @@ const TREE_NODES = {
     icon: "R",
     x: 72,
     y: 34,
-    cost: 4,
+    cost: 2,
     prerequisites: ["originLens"],
-    description: "Preserve more structure during a Rebirth.",
-    effectText: "×1.25 Rebirth Point gain",
-    effect: "rebirthGainMultiplier",
-    value: 1.25
+    description: "Preserve more upgrade structure during a Rebirth.",
+    effectText: "All Rebirth Upgrade costs are 10% cheaper",
+    effect: "rebirthCostMultiplier",
+    value: 0.9
   },
   prismPulse: {
     id: "prismPulse",
@@ -97,10 +99,10 @@ const TREE_NODES = {
     icon: "⌁",
     x: 72,
     y: 66,
-    cost: 4,
+    cost: 2,
     prerequisites: ["originLens"],
     description: "Shorten the natural Prism generation cycle.",
-    effectText: "Prism interval: 45s → 40s",
+    effectText: "Prism interval: 40s → 35s",
     effect: "prismIntervalReduction",
     value: 5
   },
@@ -111,7 +113,7 @@ const TREE_NODES = {
     icon: "+",
     x: 12,
     y: 50,
-    cost: 8,
+    cost: 4,
     prerequisites: ["powerRefraction", "efficientCircuit"],
     description: "Merge both Power branches into one unstable output channel.",
     effectText: "×2 total Power generation",
@@ -125,12 +127,12 @@ const TREE_NODES = {
     icon: "↻",
     x: 88,
     y: 22,
-    cost: 9,
+    cost: 4,
     prerequisites: ["rebirthFocus"],
-    description: "Carry a larger imprint from one cycle into the next.",
-    effectText: "×1.50 Rebirth Point gain",
-    effect: "rebirthGainMultiplier",
-    value: 1.5
+    description: "Carry a deeper upgrade imprint from one cycle into the next.",
+    effectText: "All Rebirth Upgrade costs are another 20% cheaper",
+    effect: "rebirthCostMultiplier",
+    value: 0.8
   },
   chromaticClock: {
     id: "chromaticClock",
@@ -139,10 +141,10 @@ const TREE_NODES = {
     icon: "◷",
     x: 88,
     y: 78,
-    cost: 10,
+    cost: 5,
     prerequisites: ["prismPulse"],
     description: "Synchronize Prism formation with a faster chromatic cycle.",
-    effectText: "Prism interval: 40s → 35s",
+    effectText: "Prism interval: 35s → 30s",
     effect: "prismIntervalReduction",
     value: 5
   }
@@ -174,9 +176,13 @@ function cacheElements() {
     "headerRebirthPoints", "saveStatus", "powerAmount", "powerPerSecond",
     "powerUpgradeLevel", "powerUpgradeEffect", "powerUpgradeNextEffect",
     "powerUpgradeCost", "buyPowerUpgrade", "buyMaxPowerUpgrade",
+    "powerUpgrade2Level", "powerUpgrade2Effect", "powerUpgrade2NextEffect",
+    "powerUpgrade2Cost", "buyPowerUpgrade2", "buyMaxPowerUpgrade2",
     "rebirthGain", "rebirthRequirementText", "rebirthButton",
     "rebirthUpgradeLevel", "rebirthUpgradeEffect", "rebirthUpgradeNextEffect",
     "rebirthUpgradeCost", "buyRebirthUpgrade", "buyMaxRebirthUpgrade",
+    "rebirthUpgrade2Level", "rebirthUpgrade2Effect", "rebirthUpgrade2NextEffect",
+    "rebirthUpgrade2Cost", "buyRebirthUpgrade2", "buyMaxRebirthUpgrade2",
     "treePrismBalance", "treeNodes", "treeLines", "nodePlaceholder",
     "nodeDetails", "selectedNodeIcon", "selectedNodeCategory", "selectedNodeName",
     "selectedNodeDescription", "selectedNodeEffect", "selectedNodeCost",
@@ -243,28 +249,46 @@ function getTreeSum(effectName) {
 }
 
 function getPowerUpgradeBaseCost() {
-  return 10;
+  return 5;
 }
 
 function getPowerUpgradeCost(level = state.powerUpgradeLevel) {
   const treeDiscount = getTreeProduct("powerCostMultiplier");
-  return getPowerUpgradeBaseCost() * Math.pow(1.65, level) * treeDiscount;
+  return getPowerUpgradeBaseCost() * Math.pow(1.35, level) * treeDiscount;
+}
+
+function getPowerUpgrade2Cost(level = state.powerUpgrade2Level) {
+  const treeDiscount = getTreeProduct("powerCostMultiplier");
+  return 20 * Math.pow(1.45, level) * treeDiscount;
 }
 
 function getRebirthUpgradeCost(level = state.rebirthUpgradeLevel) {
-  return Math.pow(3, level);
+  const treeDiscount = getTreeProduct("rebirthCostMultiplier");
+  return Math.max(1, Math.floor((1 + level) * treeDiscount));
+}
+
+function getRebirthUpgrade2Cost(level = state.rebirthUpgrade2Level) {
+  const treeDiscount = getTreeProduct("rebirthCostMultiplier");
+  return Math.max(1, Math.floor((2 + (2 * level)) * treeDiscount));
 }
 
 function getBasePowerPerSecond() {
-  return 1 + state.powerUpgradeLevel;
+  return 1 + state.powerUpgradeLevel + (state.rebirthUpgrade2Level * 2);
+}
+
+function getPowerUpgradeMultiplier() {
+  return Math.pow(1.25, state.powerUpgrade2Level);
 }
 
 function getRebirthPowerMultiplier() {
-  return Math.pow(2, state.rebirthUpgradeLevel);
+  return Math.pow(1.5, state.rebirthUpgradeLevel);
 }
 
 function getPowerPerSecond() {
-  return getBasePowerPerSecond() * getRebirthPowerMultiplier() * getTreeProduct("powerMultiplier");
+  return getBasePowerPerSecond()
+    * getPowerUpgradeMultiplier()
+    * getRebirthPowerMultiplier()
+    * getTreeProduct("powerMultiplier");
 }
 
 function getPrismInterval() {
@@ -273,8 +297,7 @@ function getPrismInterval() {
 
 function getRebirthGain() {
   if (state.power < BASE_REBIRTH_REQUIREMENT) return 0;
-  const baseGain = Math.floor(Math.sqrt(state.power / BASE_REBIRTH_REQUIREMENT));
-  return Math.max(1, Math.floor(baseGain * getTreeProduct("rebirthGainMultiplier")));
+  return Math.floor(state.power / BASE_REBIRTH_REQUIREMENT);
 }
 
 /* ------------------------------ Game Systems ----------------------------- */
@@ -297,6 +320,24 @@ function buyPowerUpgrade(amount = 1) {
   }
 }
 
+function buyPowerUpgrade2(amount = 1) {
+  let purchased = 0;
+  const maximum = amount === Infinity ? 100_000 : amount;
+
+  while (purchased < maximum) {
+    const cost = getPowerUpgrade2Cost();
+    if (state.power + 1e-9 < cost) break;
+    state.power -= cost;
+    state.powerUpgrade2Level += 1;
+    purchased += 1;
+  }
+
+  if (purchased > 0) {
+    showToast(`Power Resonator +${purchased}`);
+    renderAll();
+  }
+}
+
 function buyRebirthUpgrade(amount = 1) {
   let purchased = 0;
   const maximum = amount === Infinity ? 100_000 : amount;
@@ -315,6 +356,24 @@ function buyRebirthUpgrade(amount = 1) {
   }
 }
 
+function buyRebirthUpgrade2(amount = 1) {
+  let purchased = 0;
+  const maximum = amount === Infinity ? 100_000 : amount;
+
+  while (purchased < maximum) {
+    const cost = getRebirthUpgrade2Cost();
+    if (state.rebirthPoints < cost) break;
+    state.rebirthPoints -= cost;
+    state.rebirthUpgrade2Level += 1;
+    purchased += 1;
+  }
+
+  if (purchased > 0) {
+    showToast(`Rebirth Core +${purchased}`);
+    renderAll();
+  }
+}
+
 function performRebirth() {
   const gain = getRebirthGain();
   if (gain <= 0) return;
@@ -323,6 +382,7 @@ function performRebirth() {
   state.totalRebirths += 1;
   state.power = 0;
   state.powerUpgradeLevel = 0;
+  state.powerUpgrade2Level = 0;
 
   showToast(`Rebirth complete: +${formatInteger(gain)} RP`);
   saveGame(false);
@@ -410,39 +470,58 @@ function renderHeader() {
 function renderPowerPage() {
   const pps = getPowerPerSecond();
   const upgradeCost = getPowerUpgradeCost();
+  const upgrade2Cost = getPowerUpgrade2Cost();
   const currentBase = getBasePowerPerSecond();
+  const currentUpgradeMultiplier = getPowerUpgradeMultiplier();
 
   elements.powerAmount.textContent = formatNumber(state.power);
   elements.powerPerSecond.textContent = `${formatNumber(pps)} Power per second`;
+
   elements.powerUpgradeLevel.textContent = formatInteger(state.powerUpgradeLevel);
   elements.powerUpgradeEffect.textContent = `${formatNumber(currentBase)}/s`;
   elements.powerUpgradeNextEffect.textContent = `${formatNumber(currentBase + 1)}/s`;
   elements.powerUpgradeCost.textContent = `${formatNumber(upgradeCost)} Power`;
   elements.buyPowerUpgrade.disabled = state.power + 1e-9 < upgradeCost;
   elements.buyMaxPowerUpgrade.disabled = state.power + 1e-9 < upgradeCost;
+
+  elements.powerUpgrade2Level.textContent = formatInteger(state.powerUpgrade2Level);
+  elements.powerUpgrade2Effect.textContent = `×${formatNumber(currentUpgradeMultiplier)}`;
+  elements.powerUpgrade2NextEffect.textContent = `×${formatNumber(currentUpgradeMultiplier * 1.25)}`;
+  elements.powerUpgrade2Cost.textContent = `${formatNumber(upgrade2Cost)} Power`;
+  elements.buyPowerUpgrade2.disabled = state.power + 1e-9 < upgrade2Cost;
+  elements.buyMaxPowerUpgrade2.disabled = state.power + 1e-9 < upgrade2Cost;
 }
 
 function renderRebirthPage() {
   const gain = getRebirthGain();
   const upgradeCost = getRebirthUpgradeCost();
+  const upgrade2Cost = getRebirthUpgrade2Cost();
   const currentMultiplier = getRebirthPowerMultiplier();
+  const currentBaseBonus = state.rebirthUpgrade2Level * 2;
   const requirementRemaining = Math.max(0, BASE_REBIRTH_REQUIREMENT - state.power);
 
   elements.rebirthGain.textContent = `${formatInteger(gain)} ${pluralize(gain, "Rebirth Point")}`;
   elements.rebirthButton.disabled = gain <= 0;
 
   if (gain > 0) {
-    elements.rebirthRequirementText.textContent = `Ready. Current Power grants ${formatInteger(gain)} RP.`;
+    elements.rebirthRequirementText.textContent = `Ready. Every 1,000 Power grants exactly 1 RP.`;
   } else {
     elements.rebirthRequirementText.textContent = `${formatNumber(requirementRemaining)} more Power required.`;
   }
 
   elements.rebirthUpgradeLevel.textContent = formatInteger(state.rebirthUpgradeLevel);
   elements.rebirthUpgradeEffect.textContent = `×${formatNumber(currentMultiplier)}`;
-  elements.rebirthUpgradeNextEffect.textContent = `×${formatNumber(currentMultiplier * 2)}`;
+  elements.rebirthUpgradeNextEffect.textContent = `×${formatNumber(currentMultiplier * 1.5)}`;
   elements.rebirthUpgradeCost.textContent = `${formatInteger(upgradeCost)} RP`;
   elements.buyRebirthUpgrade.disabled = state.rebirthPoints < upgradeCost;
   elements.buyMaxRebirthUpgrade.disabled = state.rebirthPoints < upgradeCost;
+
+  elements.rebirthUpgrade2Level.textContent = formatInteger(state.rebirthUpgrade2Level);
+  elements.rebirthUpgrade2Effect.textContent = `+${formatNumber(currentBaseBonus)}/s`;
+  elements.rebirthUpgrade2NextEffect.textContent = `+${formatNumber(currentBaseBonus + 2)}/s`;
+  elements.rebirthUpgrade2Cost.textContent = `${formatInteger(upgrade2Cost)} RP`;
+  elements.buyRebirthUpgrade2.disabled = state.rebirthPoints < upgrade2Cost;
+  elements.buyMaxRebirthUpgrade2.disabled = state.rebirthPoints < upgrade2Cost;
 }
 
 function renderTree() {
@@ -566,8 +645,8 @@ function sanitizeLoadedState(candidate) {
   if (!candidate || typeof candidate !== "object") return clean;
 
   const finiteNonNegativeFields = [
-    "power", "prisms", "rebirthPoints", "powerUpgradeLevel",
-    "rebirthUpgradeLevel", "prismProgress", "totalRebirths", "totalPlayTime"
+    "power", "prisms", "rebirthPoints", "powerUpgradeLevel", "powerUpgrade2Level",
+    "rebirthUpgradeLevel", "rebirthUpgrade2Level", "prismProgress", "totalRebirths", "totalPlayTime"
   ];
 
   for (const field of finiteNonNegativeFields) {
@@ -576,7 +655,9 @@ function sanitizeLoadedState(candidate) {
   }
 
   clean.powerUpgradeLevel = Math.floor(clean.powerUpgradeLevel);
+  clean.powerUpgrade2Level = Math.floor(clean.powerUpgrade2Level);
   clean.rebirthUpgradeLevel = Math.floor(clean.rebirthUpgradeLevel);
+  clean.rebirthUpgrade2Level = Math.floor(clean.rebirthUpgrade2Level);
   clean.prisms = Math.floor(clean.prisms);
   clean.rebirthPoints = Math.floor(clean.rebirthPoints);
   clean.totalRebirths = Math.floor(clean.totalRebirths);
@@ -726,9 +807,13 @@ function bindEvents() {
 
   elements.buyPowerUpgrade.addEventListener("click", () => buyPowerUpgrade(1));
   elements.buyMaxPowerUpgrade.addEventListener("click", () => buyPowerUpgrade(Infinity));
+  elements.buyPowerUpgrade2.addEventListener("click", () => buyPowerUpgrade2(1));
+  elements.buyMaxPowerUpgrade2.addEventListener("click", () => buyPowerUpgrade2(Infinity));
   elements.rebirthButton.addEventListener("click", performRebirth);
   elements.buyRebirthUpgrade.addEventListener("click", () => buyRebirthUpgrade(1));
   elements.buyMaxRebirthUpgrade.addEventListener("click", () => buyRebirthUpgrade(Infinity));
+  elements.buyRebirthUpgrade2.addEventListener("click", () => buyRebirthUpgrade2(1));
+  elements.buyMaxRebirthUpgrade2.addEventListener("click", () => buyRebirthUpgrade2(Infinity));
   elements.purchaseTreeNode.addEventListener("click", purchaseSelectedTreeNode);
 
   elements.settingsButton.addEventListener("click", openSettings);

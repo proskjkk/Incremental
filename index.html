@@ -27,7 +27,7 @@
         <div class="currency-chip prism-chip">
           <span class="currency-label">Prism</span>
           <strong id="headerPrism">0</strong>
-          <small id="headerPrismTimer">45.0s</small>
+          <small id="headerPrismTimer">40.0s</small>
         </div>
         <div class="currency-chip rebirth-chip">
           <span class="currency-label">Rebirth Points</span>
@@ -105,10 +105,42 @@
           </div>
           <div class="purchase-column">
             <span class="cost-label">Cost</span>
-            <strong class="cost-value" id="powerUpgradeCost">10 Power</strong>
+            <strong class="cost-value" id="powerUpgradeCost">5 Power</strong>
             <div class="button-row">
               <button class="primary-button power-button" id="buyPowerUpgrade" type="button">Buy 1</button>
               <button class="secondary-button" id="buyMaxPowerUpgrade" type="button">Buy Max</button>
+            </div>
+          </div>
+        </article>
+
+        <div class="section-header upgrade-section-gap">
+          <div>
+            <p class="eyebrow">POWER UPGRADE</p>
+            <h2>Power Resonator</h2>
+          </div>
+          <span class="level-badge">Level <strong id="powerUpgrade2Level">0</strong></span>
+        </div>
+
+        <article class="upgrade-card power-upgrade-card">
+          <div class="upgrade-icon power-icon" aria-hidden="true">×</div>
+          <div class="upgrade-copy">
+            <h3>Multiply total Power generation</h3>
+            <p>Each level multiplies total Power generation by <strong>×1.25</strong>.</p>
+            <div class="effect-row">
+              <span>Current multiplier</span>
+              <strong id="powerUpgrade2Effect">×1</strong>
+            </div>
+            <div class="effect-row muted-row">
+              <span>Next level</span>
+              <strong id="powerUpgrade2NextEffect">×1.25</strong>
+            </div>
+          </div>
+          <div class="purchase-column">
+            <span class="cost-label">Cost</span>
+            <strong class="cost-value" id="powerUpgrade2Cost">20 Power</strong>
+            <div class="button-row">
+              <button class="primary-button power-button" id="buyPowerUpgrade2" type="button">Buy 1</button>
+              <button class="secondary-button" id="buyMaxPowerUpgrade2" type="button">Buy Max</button>
             </div>
           </div>
         </article>
@@ -119,7 +151,7 @@
           <div>
             <p class="eyebrow">PERMANENT RESET</p>
             <h1>Rebirth</h1>
-            <p>Reset Power and the Flux Condenser to gain permanent Rebirth Points.</p>
+            <p>Reset Power and both Power Upgrades to gain permanent Rebirth Points.</p>
           </div>
           <div class="status-pill rebirth-status">Permanent layer</div>
         </div>
@@ -134,7 +166,7 @@
             <strong id="rebirthGain">0 Rebirth Points</strong>
             <small id="rebirthRequirementText">Reach 1,000 Power to Rebirth.</small>
             <button class="primary-button rebirth-button" id="rebirthButton" type="button" disabled>Rebirth</button>
-            <p class="reset-warning">Resets current Power and Flux Condenser levels. Prisms, tree nodes, Rebirth Points, and Rebirth Upgrades remain.</p>
+            <p class="reset-warning">Resets current Power and both Power Upgrade levels. Prisms, tree nodes, Rebirth Points, and Rebirth Upgrades remain.</p>
           </article>
 
           <article class="upgrade-card rebirth-upgrade-card">
@@ -147,14 +179,14 @@
                 </div>
                 <span class="level-badge">Level <strong id="rebirthUpgradeLevel">0</strong></span>
               </div>
-              <p>Each level doubles total Power generation.</p>
+              <p>Each level multiplies total Power generation by <strong>×1.5</strong>.</p>
               <div class="effect-row">
                 <span>Current multiplier</span>
                 <strong id="rebirthUpgradeEffect">×1</strong>
               </div>
               <div class="effect-row muted-row">
                 <span>Next level</span>
-                <strong id="rebirthUpgradeNextEffect">×2</strong>
+                <strong id="rebirthUpgradeNextEffect">×1.5</strong>
               </div>
             </div>
             <div class="purchase-column">
@@ -163,6 +195,36 @@
               <div class="button-row">
                 <button class="primary-button rebirth-button" id="buyRebirthUpgrade" type="button">Buy 1</button>
                 <button class="secondary-button" id="buyMaxRebirthUpgrade" type="button">Buy Max</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="upgrade-card rebirth-upgrade-card">
+            <div class="upgrade-icon rebirth-icon" aria-hidden="true">+</div>
+            <div class="upgrade-copy">
+              <div class="section-header compact-header">
+                <div>
+                  <p class="eyebrow">REBIRTH UPGRADE</p>
+                  <h2>Rebirth Core</h2>
+                </div>
+                <span class="level-badge">Level <strong id="rebirthUpgrade2Level">0</strong></span>
+              </div>
+              <p>Each level permanently adds <strong>+2 base Power per second</strong>.</p>
+              <div class="effect-row">
+                <span>Current bonus</span>
+                <strong id="rebirthUpgrade2Effect">+0/s</strong>
+              </div>
+              <div class="effect-row muted-row">
+                <span>Next level</span>
+                <strong id="rebirthUpgrade2NextEffect">+2/s</strong>
+              </div>
+            </div>
+            <div class="purchase-column">
+              <span class="cost-label">Cost</span>
+              <strong class="cost-value" id="rebirthUpgrade2Cost">2 RP</strong>
+              <div class="button-row">
+                <button class="primary-button rebirth-button" id="buyRebirthUpgrade2" type="button">Buy 1</button>
+                <button class="secondary-button" id="buyMaxRebirthUpgrade2" type="button">Buy Max</button>
               </div>
             </div>
           </article>
