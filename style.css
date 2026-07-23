@@ -1552,3 +1552,86 @@ select {
     width: 100%;
   }
 }
+
+/* V0.0.1 large-number and repeatable-tree corrections */
+.tree-line {
+  fill: none;
+}
+
+.tree-node.hidden-node {
+  display: none;
+}
+
+.tree-node.owned .hex-border {
+  background: color-mix(in srgb, var(--node-color) 72%, var(--success));
+}
+
+.tree-node.owned::after {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--node-color) 78%, #081019);
+  color: white;
+  content: "+";
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.tree-node.maxed .hex-border {
+  background: var(--success);
+}
+
+.tree-node.maxed::after {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 4;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--success);
+  color: #062110;
+  content: "✓";
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.rebirth-panel > strong,
+.hero-stat > strong,
+.currency-chip strong,
+.level-badge strong,
+.effect-row strong,
+.compact-purchase-row strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.rebirth-panel > strong {
+  width: 100%;
+  font-size: clamp(1.05rem, 2.2vw, 1.45rem);
+  line-height: 1.18;
+}
+
+.level-badge {
+  max-width: 66%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-tier-mini {
+  min-width: 38px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.24);
+  text-align: center;
+}
