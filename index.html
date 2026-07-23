@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Eonshift — a compact incremental game prototype.">
+  <meta name="description" content="Eonshift — an incremental game prototype.">
   <title>Eonshift V0.0.1</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -69,9 +69,8 @@
           <div>
             <p class="eyebrow">PRIMARY SYSTEM</p>
             <h1>Power Generation</h1>
-            <p>Build a stable current, then reset it later for permanent Rebirth Points.</p>
+            <p>Build Power, improve production, then reset for permanent Rebirth Points.</p>
           </div>
-          <div class="status-pill">Automatic</div>
         </div>
 
         <div class="hero-stat power-hero">
@@ -81,69 +80,56 @@
           <div class="flow-line"><span></span></div>
         </div>
 
-        <div class="section-header">
+        <div class="section-header compact-section-heading">
           <div>
-            <p class="eyebrow">POWER UPGRADE</p>
-            <h2>Flux Condenser</h2>
+            <p class="eyebrow">POWER UPGRADES</p>
+            <h2>Production Modules</h2>
           </div>
-          <span class="level-badge">Level <strong id="powerUpgradeLevel">0</strong></span>
         </div>
 
-        <article class="upgrade-card power-upgrade-card">
-          <div class="upgrade-icon power-icon" aria-hidden="true">+</div>
-          <div class="upgrade-copy">
-            <h3>Increase base Power generation</h3>
-            <p>Each level adds <strong>+1 base Power per second</strong>.</p>
-            <div class="effect-row">
-              <span>Current base</span>
-              <strong id="powerUpgradeEffect">1/s</strong>
+        <div class="upgrade-grid">
+          <article class="compact-upgrade-card power-upgrade-card">
+            <div class="compact-upgrade-topline">
+              <div class="upgrade-icon power-icon" aria-hidden="true">+</div>
+              <span class="level-badge">Level <strong id="powerUpgradeLevel">0</strong></span>
             </div>
-            <div class="effect-row muted-row">
-              <span>Next level</span>
-              <strong id="powerUpgradeNextEffect">2/s</strong>
+            <div class="compact-upgrade-copy">
+              <p class="eyebrow">POWER UPGRADE</p>
+              <h3>Flux Condenser</h3>
+              <p>Adds <strong>+1 base Power/s</strong> per level.</p>
+              <div class="effect-row"><span>Current</span><strong id="powerUpgradeEffect">+0/s</strong></div>
+              <div class="effect-row muted-row"><span>Next</span><strong id="powerUpgradeNextEffect">+1/s</strong></div>
             </div>
-          </div>
-          <div class="purchase-column">
-            <span class="cost-label">Cost</span>
-            <strong class="cost-value" id="powerUpgradeCost">5 Power</strong>
-            <div class="button-row">
-              <button class="primary-button power-button" id="buyPowerUpgrade" type="button">Buy 1</button>
-              <button class="secondary-button" id="buyMaxPowerUpgrade" type="button">Buy Max</button>
+            <div class="compact-purchase-row">
+              <div><span>Cost</span><strong id="powerUpgradeCost">5 Power</strong></div>
+              <div class="button-row">
+                <button class="primary-button power-button" id="buyPowerUpgrade" type="button">Buy 1</button>
+                <button class="secondary-button" id="buyMaxPowerUpgrade" type="button">Buy Max</button>
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
 
-        <div class="section-header upgrade-section-gap">
-          <div>
-            <p class="eyebrow">POWER UPGRADE</p>
-            <h2>Power Resonator</h2>
-          </div>
-          <span class="level-badge">Level <strong id="powerUpgrade2Level">0</strong></span>
+          <article class="compact-upgrade-card power-upgrade-card resonator-card">
+            <div class="compact-upgrade-topline">
+              <div class="upgrade-icon power-icon" aria-hidden="true">×</div>
+              <span class="level-badge">Level <strong id="powerResonatorLevel">0</strong></span>
+            </div>
+            <div class="compact-upgrade-copy">
+              <p class="eyebrow">POWER UPGRADE</p>
+              <h3>Power Resonator</h3>
+              <p>Multiplies total Power by <strong>×1.25</strong> per level.</p>
+              <div class="effect-row"><span>Current</span><strong id="powerResonatorEffect">×1</strong></div>
+              <div class="effect-row muted-row"><span>Next</span><strong id="powerResonatorNextEffect">×1.25</strong></div>
+            </div>
+            <div class="compact-purchase-row">
+              <div><span>Cost</span><strong id="powerResonatorCost">20 Power</strong></div>
+              <div class="button-row">
+                <button class="primary-button power-button" id="buyPowerResonator" type="button">Buy 1</button>
+                <button class="secondary-button" id="buyMaxPowerResonator" type="button">Buy Max</button>
+              </div>
+            </div>
+          </article>
         </div>
-
-        <article class="upgrade-card power-upgrade-card">
-          <div class="upgrade-icon power-icon" aria-hidden="true">×</div>
-          <div class="upgrade-copy">
-            <h3>Multiply total Power generation</h3>
-            <p>Each level multiplies total Power generation by <strong>×1.25</strong>.</p>
-            <div class="effect-row">
-              <span>Current multiplier</span>
-              <strong id="powerUpgrade2Effect">×1</strong>
-            </div>
-            <div class="effect-row muted-row">
-              <span>Next level</span>
-              <strong id="powerUpgrade2NextEffect">×1.25</strong>
-            </div>
-          </div>
-          <div class="purchase-column">
-            <span class="cost-label">Cost</span>
-            <strong class="cost-value" id="powerUpgrade2Cost">20 Power</strong>
-            <div class="button-row">
-              <button class="primary-button power-button" id="buyPowerUpgrade2" type="button">Buy 1</button>
-              <button class="secondary-button" id="buyMaxPowerUpgrade2" type="button">Buy Max</button>
-            </div>
-          </div>
-        </article>
       </section>
 
       <section class="page" id="rebirthPage" data-page-panel="rebirth">
@@ -151,12 +137,12 @@
           <div>
             <p class="eyebrow">PERMANENT RESET</p>
             <h1>Rebirth</h1>
-            <p>Reset Power and both Power Upgrades to gain permanent Rebirth Points.</p>
+            <p>Every 1,000 Power grants exactly 1 Rebirth Point.</p>
           </div>
           <div class="status-pill rebirth-status">Permanent layer</div>
         </div>
 
-        <div class="rebirth-grid">
+        <div class="rebirth-layout">
           <article class="rebirth-panel">
             <div class="rebirth-orbit" aria-hidden="true">
               <div class="orbit-ring"></div>
@@ -169,65 +155,58 @@
             <p class="reset-warning">Resets current Power and both Power Upgrade levels. Prisms, tree nodes, Rebirth Points, and Rebirth Upgrades remain.</p>
           </article>
 
-          <article class="upgrade-card rebirth-upgrade-card">
-            <div class="upgrade-icon rebirth-icon" aria-hidden="true">×</div>
-            <div class="upgrade-copy">
-              <div class="section-header compact-header">
-                <div>
-                  <p class="eyebrow">REBIRTH UPGRADE</p>
-                  <h2>Rebirth Amplifier</h2>
-                </div>
-                <span class="level-badge">Level <strong id="rebirthUpgradeLevel">0</strong></span>
-              </div>
-              <p>Each level multiplies total Power generation by <strong>×1.5</strong>.</p>
-              <div class="effect-row">
-                <span>Current multiplier</span>
-                <strong id="rebirthUpgradeEffect">×1</strong>
-              </div>
-              <div class="effect-row muted-row">
-                <span>Next level</span>
-                <strong id="rebirthUpgradeNextEffect">×1.5</strong>
+          <div class="rebirth-upgrade-column">
+            <div class="section-header compact-section-heading">
+              <div>
+                <p class="eyebrow">REBIRTH UPGRADES</p>
+                <h2>Permanent Modules</h2>
               </div>
             </div>
-            <div class="purchase-column">
-              <span class="cost-label">Cost</span>
-              <strong class="cost-value" id="rebirthUpgradeCost">1 RP</strong>
-              <div class="button-row">
-                <button class="primary-button rebirth-button" id="buyRebirthUpgrade" type="button">Buy 1</button>
-                <button class="secondary-button" id="buyMaxRebirthUpgrade" type="button">Buy Max</button>
-              </div>
-            </div>
-          </article>
 
-          <article class="upgrade-card rebirth-upgrade-card">
-            <div class="upgrade-icon rebirth-icon" aria-hidden="true">+</div>
-            <div class="upgrade-copy">
-              <div class="section-header compact-header">
-                <div>
-                  <p class="eyebrow">REBIRTH UPGRADE</p>
-                  <h2>Rebirth Core</h2>
+            <div class="upgrade-grid rebirth-upgrade-grid">
+              <article class="compact-upgrade-card rebirth-upgrade-card">
+                <div class="compact-upgrade-topline">
+                  <div class="upgrade-icon rebirth-icon" aria-hidden="true">×</div>
+                  <span class="level-badge">Level <strong id="rebirthUpgradeLevel">0</strong></span>
                 </div>
-                <span class="level-badge">Level <strong id="rebirthUpgrade2Level">0</strong></span>
-              </div>
-              <p>Each level permanently adds <strong>+2 base Power per second</strong>.</p>
-              <div class="effect-row">
-                <span>Current bonus</span>
-                <strong id="rebirthUpgrade2Effect">+0/s</strong>
-              </div>
-              <div class="effect-row muted-row">
-                <span>Next level</span>
-                <strong id="rebirthUpgrade2NextEffect">+2/s</strong>
-              </div>
+                <div class="compact-upgrade-copy">
+                  <p class="eyebrow">REBIRTH UPGRADE</p>
+                  <h3>Rebirth Amplifier</h3>
+                  <p>Multiplies total Power by <strong>×1.5</strong> per level.</p>
+                  <div class="effect-row"><span>Current</span><strong id="rebirthUpgradeEffect">×1</strong></div>
+                  <div class="effect-row muted-row"><span>Next</span><strong id="rebirthUpgradeNextEffect">×1.5</strong></div>
+                </div>
+                <div class="compact-purchase-row">
+                  <div><span>Cost</span><strong id="rebirthUpgradeCost">1 RP</strong></div>
+                  <div class="button-row">
+                    <button class="primary-button rebirth-button" id="buyRebirthUpgrade" type="button">Buy 1</button>
+                    <button class="secondary-button" id="buyMaxRebirthUpgrade" type="button">Buy Max</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="compact-upgrade-card rebirth-upgrade-card core-card">
+                <div class="compact-upgrade-topline">
+                  <div class="upgrade-icon rebirth-icon" aria-hidden="true">+</div>
+                  <span class="level-badge">Level <strong id="rebirthCoreLevel">0</strong></span>
+                </div>
+                <div class="compact-upgrade-copy">
+                  <p class="eyebrow">REBIRTH UPGRADE</p>
+                  <h3>Rebirth Core</h3>
+                  <p>Adds <strong>+2 base Power/s</strong> per level.</p>
+                  <div class="effect-row"><span>Current</span><strong id="rebirthCoreEffect">+0/s</strong></div>
+                  <div class="effect-row muted-row"><span>Next</span><strong id="rebirthCoreNextEffect">+2/s</strong></div>
+                </div>
+                <div class="compact-purchase-row">
+                  <div><span>Cost</span><strong id="rebirthCoreCost">2 RP</strong></div>
+                  <div class="button-row">
+                    <button class="primary-button rebirth-button" id="buyRebirthCore" type="button">Buy 1</button>
+                    <button class="secondary-button" id="buyMaxRebirthCore" type="button">Buy Max</button>
+                  </div>
+                </div>
+              </article>
             </div>
-            <div class="purchase-column">
-              <span class="cost-label">Cost</span>
-              <strong class="cost-value" id="rebirthUpgrade2Cost">2 RP</strong>
-              <div class="button-row">
-                <button class="primary-button rebirth-button" id="buyRebirthUpgrade2" type="button">Buy 1</button>
-                <button class="secondary-button" id="buyMaxRebirthUpgrade2" type="button">Buy Max</button>
-              </div>
-            </div>
-          </article>
+          </div>
         </div>
       </section>
 
@@ -236,7 +215,7 @@
           <div>
             <p class="eyebrow">PRISM SYSTEM</p>
             <h1>Prism Tree</h1>
-            <p>Purchase connected hexagonal nodes. Locked branches reveal themselves as you advance.</p>
+            <p>Follow irregular branches for Power, Prism, and offline progression upgrades.</p>
           </div>
           <div class="tree-prism-balance"><span>Prisms</span><strong id="treePrismBalance">0</strong></div>
         </div>
@@ -244,7 +223,7 @@
         <div class="tree-layout">
           <div class="tree-viewport" id="treeViewport" aria-label="Prism skill tree">
             <div class="tree-grid-background"></div>
-            <svg class="tree-lines" id="treeLines" viewBox="0 0 1000 680" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <svg class="tree-lines" id="treeLines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div class="tree-nodes" id="treeNodes"></div>
           </div>
 
@@ -252,7 +231,7 @@
             <div class="node-panel-placeholder" id="nodePlaceholder">
               <div class="placeholder-hex">?</div>
               <h2>Select a node</h2>
-              <p>Choose a visible hexagon to inspect its effect, cost, and prerequisites.</p>
+              <p>Choose a visible hexagon to inspect its effect, cost, and prerequisite.</p>
             </div>
             <div class="node-panel-content hidden" id="nodeDetails">
               <div class="selected-node-icon" id="selectedNodeIcon">◇</div>
@@ -274,7 +253,7 @@
   </div>
 
   <div class="modal-backdrop hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-    <div class="modal-card">
+    <div class="modal-card settings-modal-card">
       <div class="modal-heading">
         <div>
           <p class="eyebrow">LOCAL DATA</p>
@@ -283,6 +262,7 @@
         <button class="icon-button close-button" id="closeSettingsButton" type="button" aria-label="Close settings">×</button>
       </div>
       <p>Your progress is stored in this browser. Autosave runs every 10 seconds.</p>
+
       <div class="settings-actions">
         <button class="secondary-button" id="saveNowButton" type="button">Save now</button>
         <button class="secondary-button" id="exportSaveButton" type="button">Export save</button>
@@ -294,6 +274,106 @@
         <button class="primary-button" id="confirmImportButton" type="button">Import pasted save</button>
         <button class="secondary-button" id="cancelSaveTextButton" type="button">Cancel</button>
       </div>
+
+      <section class="developer-access-section">
+        <div class="settings-section-heading">
+          <div>
+            <p class="eyebrow">TESTING</p>
+            <h3>Developer Access</h3>
+          </div>
+          <span id="developerStatus">Locked</span>
+        </div>
+
+        <div class="developer-login" id="developerLogin">
+          <label for="developerPasscode">Passcode</label>
+          <div class="inline-control-row">
+            <input id="developerPasscode" type="password" autocomplete="off" placeholder="Enter developer passcode">
+            <button class="secondary-button" id="unlockDeveloperButton" type="button">Unlock</button>
+          </div>
+        </div>
+
+        <div class="developer-tools hidden" id="developerTools">
+          <div class="developer-tool-grid">
+            <label>
+              Resource
+              <select id="developerResourceSelect">
+                <option value="power">Power</option>
+                <option value="prisms">Prisms</option>
+                <option value="rebirthPoints">Rebirth Points</option>
+              </select>
+            </label>
+            <label>
+              Amount
+              <input id="developerResourceAmount" type="number" min="0" step="1" value="1000">
+            </label>
+            <div class="developer-action-pair">
+              <button class="secondary-button" id="developerAddResource" type="button">Add</button>
+              <button class="secondary-button" id="developerSetResource" type="button">Set</button>
+            </div>
+
+            <label>
+              Upgrade
+              <select id="developerUpgradeSelect">
+                <option value="powerUpgradeLevel">Flux Condenser</option>
+                <option value="powerResonatorLevel">Power Resonator</option>
+                <option value="rebirthUpgradeLevel">Rebirth Amplifier</option>
+                <option value="rebirthCoreLevel">Rebirth Core</option>
+              </select>
+            </label>
+            <label>
+              Levels
+              <input id="developerUpgradeAmount" type="number" min="0" step="1" value="1">
+            </label>
+            <div class="developer-action-pair">
+              <button class="secondary-button" id="developerAddUpgrade" type="button">Add levels</button>
+              <button class="secondary-button" id="developerSetUpgrade" type="button">Set level</button>
+            </div>
+          </div>
+
+          <div class="developer-wide-actions">
+            <button class="secondary-button" id="developerUnlockTree" type="button">Unlock all tree nodes</button>
+            <button class="secondary-button" id="developerResetTree" type="button">Reset tree nodes</button>
+          </div>
+
+          <div class="developer-offline-test">
+            <label for="developerOfflineHours">Simulate closed-game offline time</label>
+            <div class="inline-control-row">
+              <input id="developerOfflineHours" type="number" min="0.01" step="0.25" value="1">
+              <button class="secondary-button" id="developerSimulateOffline" type="button">Simulate</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="offlineModal" role="dialog" aria-modal="true" aria-labelledby="offlineTitle">
+    <div class="modal-card offline-modal-card">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">WELCOME BACK</p>
+          <h2 id="offlineTitle">Offline Progress</h2>
+        </div>
+        <button class="icon-button close-button" id="closeOfflineButton" type="button" aria-label="Close offline progress">×</button>
+      </div>
+
+      <p class="offline-duration-copy">You were away for <strong id="offlineElapsedText">0s</strong>.</p>
+      <div class="offline-summary-grid">
+        <div class="offline-stat"><span>Applied time</span><strong id="offlineAppliedText">0s</strong></div>
+        <div class="offline-stat"><span>Efficiency</span><strong id="offlineEfficiencyText">85%</strong></div>
+        <div class="offline-stat"><span>Power gained</span><strong id="offlinePowerGain">0</strong></div>
+        <div class="offline-stat"><span>Prisms gained</span><strong id="offlinePrismGain">0</strong></div>
+      </div>
+
+      <div class="offline-chart-wrap">
+        <div class="offline-chart-heading">
+          <span>Power accumulated during offline progress</span>
+          <small id="offlineLimitNote">6h limit</small>
+        </div>
+        <canvas id="offlineChart" width="900" height="360" aria-label="Graph of offline Power accumulation"></canvas>
+      </div>
+
+      <button class="primary-button offline-continue-button" id="offlineContinueButton" type="button">Continue</button>
     </div>
   </div>
 
