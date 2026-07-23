@@ -1,2236 +1,1762 @@
 "use strict";
 
-/* Eonshift V0.0.1 — prototype systems remain data-driven in one file. */
+/* --------------------------------------------------------------------------
+   Eonshift V0.0.1
+   Static HTML/CSS/JS prototype. All progression numbers use HugeNumber so
+   values such as 1e100K remain finite and serializable.
+---------------------------------------------------------------------------- */
 
 const GAME_VERSION = "0.0.1";
 const SAVE_KEY = "eonshift-save-v001";
-const SESSION_KEY = "eonshift-session-v001";
-const DEV_SESSION_KEY = "eonshift-dev-v001";
-const DEV_PASSCODE = "1234";
-const AUTOSAVE_INTERVAL_MS = 10_000;
-const GAME_TICK_MS = 100;
-const BACKGROUND_SUSPEND_THRESHOLD_SECONDS = 2;
+const AUTOSAVE_SECONDS = 10;
 const BASE_PRISM_INTERVAL = 40;
-const BASE_REBIRTH_REQUIREMENT = 1_000;
 const BASE_OFFLINE_EFFICIENCY = 0.85;
 const BASE_OFFLINE_LIMIT_SECONDS = 6 * 60 * 60;
-const BASE_RESONATOR_CAP = 50;
-const BASE_AMPLIFIER_CAP = 35;
-const BASE_WIND_TURBINE_CAP = 10;
-const BASE_WIND_STORAGE_CAP = 100;
-const BASE_WIND_COLLECT_AMOUNT = 10;
-const BASE_WIND_PER_TURBINE = 0.25;
-const BASE_INSIGHT_RATE = 0.02;
-const BASE_RUNE_COST = 10;
-const BASE_RUNE_COOLDOWN = 3;
+const BASE_INSIGHT_RATE = 0.2;
+const BASE_RUNE_COOLDOWN = 1;
+const MIN_RUNE_COOLDOWN = 0.15;
 const BASE_RUNE_PITY = 75;
-const MAX_RUNE_LEVEL = 100;
-const PRESTIGE_BASE_COST = "1e30";
-const PRESTIGE_COST_GROWTH = "1e18";
+const BASE_REBIRTH_REQUIREMENT = 1000;
+const SUSPEND_GAP_SECONDS = 10;
+const MAX_SAFE_LEVEL = 1e9;
 
-/* --------------------------- Large-number core --------------------------- */
+/* -------------------------------- HugeNumber ------------------------------- */
 
-/**
- * Positive/negative scientific number with a JavaScript-number exponent.
- * It safely handles values such as 1e100000 without becoming Infinity.
- * This prototype range is sufficient for V0.0.1 and can later be swapped for
- * a layered-number library without changing the game-state API.
- */
 class HugeNumber {
   constructor(value = 0) {
-    this.sign = 0;
-    this.mantissa = 0;
-    this.exponent = 0;
+    this.m = 0;
+    this.e = 0;
     this.set(value);
-  }
-
-  static zero() {
-    return new HugeNumber(0);
-  }
-
-  static one() {
-    return new HugeNumber(1);
   }
 
   static from(value) {
     return value instanceof HugeNumber ? value.clone() : new HugeNumber(value);
   }
 
-  static fromParts(sign, mantissa, exponent) {
-    const result = Object.create(HugeNumber.prototype);
-    result.sign = sign;
-    result.mantissa = Math.abs(mantissa);
-    result.exponent = Number(exponent) || 0;
-    return result.normalize();
-  }
+  static zero() { return new HugeNumber(0); }
+  static one() { return new HugeNumber(1); }
 
-  static fromLog10(logarithm) {
-    if (logarithm === -Infinity) return HugeNumber.zero();
-    if (!Number.isFinite(logarithm)) {
-      throw new RangeError("HugeNumber exponent exceeded the supported prototype range");
-    }
-    const exponent = Math.floor(logarithm);
-    return HugeNumber.fromParts(1, Math.pow(10, logarithm - exponent), exponent);
-  }
-
-  static pow(base, exponent) {
-    const numericBase = Number(base);
-    const numericExponent = Number(exponent);
-    if (!Number.isFinite(numericBase) || numericBase < 0 || !Number.isFinite(numericExponent)) {
-      return HugeNumber.zero();
-    }
-    if (numericBase === 0) return numericExponent === 0 ? HugeNumber.one() : HugeNumber.zero();
-    return HugeNumber.fromLog10(Math.log10(numericBase) * numericExponent);
+  static fromLog10(logValue) {
+    if (!Number.isFinite(logValue)) return logValue === -Infinity ? HugeNumber.zero() : new HugeNumber({ m: 9.99999999999999, e: Number.MAX_VALUE });
+    const exponent = Math.floor(logValue);
+    const mantissa = Math.pow(10, logValue - exponent);
+    return new HugeNumber({ m: mantissa, e: exponent });
   }
 
   set(value) {
     if (value instanceof HugeNumber) {
-      this.sign = value.sign;
-      this.mantissa = value.mantissa;
-      this.exponent = value.exponent;
+      this.m = value.m;
+      this.e = value.e;
       return this;
     }
 
     if (value && typeof value === "object") {
-      const mantissa = Number(value.mantissa ?? value.m ?? 0);
-      const exponent = Number(value.exponent ?? value.e ?? 0);
-      const sign = Number(value.sign ?? value.s ?? Math.sign(mantissa));
-      if (Number.isFinite(mantissa) && Number.isFinite(exponent) && Number.isFinite(sign)) {
-        this.sign = Math.sign(sign);
-        this.mantissa = Math.abs(mantissa);
-        this.exponent = exponent;
+      const mantissa = Number(value.m ?? value.mantissa ?? value.significand);
+      const exponent = Number(value.e ?? value.exponent ?? 0);
+      if (Number.isFinite(mantissa) && Number.isFinite(exponent)) {
+        this.m = Math.max(0, mantissa);
+        this.e = exponent;
         return this.normalize();
       }
     }
 
-    if (typeof value === "string") return this.fromString(value);
+    if (typeof value === "string") {
+      const text = value.trim().replaceAll(",", "");
+      if (!text || /^0+(\.0+)?$/i.test(text)) {
+        this.m = 0;
+        this.e = 0;
+        return this;
+      }
 
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric === 0) {
-      this.sign = 0;
-      this.mantissa = 0;
-      this.exponent = 0;
+      const scientific = text.match(/^([+]?(?:\d+\.?\d*|\.\d+))(?:e([+]?[-\d.]+(?:[a-z]+)?))?$/i);
+      if (scientific) {
+        const coefficient = Number(scientific[1]);
+        const exponent = scientific[2] ? parseCompactMagnitude(scientific[2]) : 0;
+        if (Number.isFinite(coefficient) && Number.isFinite(exponent) && coefficient >= 0) {
+          if (!scientific[2]) return this.set(coefficient);
+          this.m = coefficient;
+          this.e = exponent;
+          return this.normalize();
+        }
+      }
+
+      const plain = Number(text);
+      if (Number.isFinite(plain) && plain >= 0) return this.set(plain);
+      this.m = 0;
+      this.e = 0;
       return this;
     }
 
-    this.sign = Math.sign(numeric);
-    this.mantissa = Math.abs(numeric);
-    this.exponent = 0;
-    return this.normalize();
-  }
-
-  fromString(rawValue) {
-    const raw = String(rawValue).trim().replaceAll(",", "");
-    if (!raw || /^[-+]?0(?:\.0+)?$/i.test(raw)) return this.set(0);
-
-    const suffixMatch = raw.match(/^([+-]?\d*\.?\d+)\s*(K|M|B|T|Qa|Qn|Sx|Sp|Oc|No|Dc)$/i);
-    if (suffixMatch) {
-      const suffixes = ["K", "M", "B", "T", "QA", "QN", "SX", "SP", "OC", "NO", "DC"];
-      const tier = suffixes.indexOf(suffixMatch[2].toUpperCase()) + 1;
-      return this.set(Number(suffixMatch[1])).multiply(HugeNumber.fromParts(1, 1, tier * 3)).copyTo(this);
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) {
+      this.m = 0;
+      this.e = 0;
+      return this;
     }
 
-    const scientificMatch = raw.match(/^([+-]?\d*\.?\d+)(?:e([+-]?[\d.]+(?:[kmbt])?))?$/i);
-    if (!scientificMatch) return this.set(0);
-
-    const coefficient = Number(scientificMatch[1]);
-    if (!Number.isFinite(coefficient) || coefficient === 0) return this.set(0);
-
-    let exponent = 0;
-    if (scientificMatch[2]) {
-      const exponentText = scientificMatch[2].toLowerCase();
-      const multiplier = exponentText.endsWith("k") ? 1e3
-        : exponentText.endsWith("m") ? 1e6
-          : exponentText.endsWith("b") ? 1e9
-            : exponentText.endsWith("t") ? 1e12
-              : 1;
-      exponent = Number.parseFloat(exponentText) * multiplier;
-    }
-
-    if (!Number.isFinite(exponent)) return this.set(0);
-    this.sign = Math.sign(coefficient);
-    this.mantissa = Math.abs(coefficient);
-    this.exponent = exponent;
+    this.e = Math.floor(Math.log10(number));
+    this.m = number / Math.pow(10, this.e);
     return this.normalize();
-  }
-
-  copyTo(target) {
-    target.sign = this.sign;
-    target.mantissa = this.mantissa;
-    target.exponent = this.exponent;
-    return target;
-  }
-
-  clone() {
-    return HugeNumber.fromParts(this.sign, this.mantissa, this.exponent);
   }
 
   normalize() {
-    if (this.sign === 0 || this.mantissa === 0 || !Number.isFinite(this.mantissa)) {
-      this.sign = 0;
-      this.mantissa = 0;
-      this.exponent = 0;
+    if (!Number.isFinite(this.m) || !Number.isFinite(this.e) || this.m <= 0) {
+      this.m = 0;
+      this.e = 0;
       return this;
     }
 
-    if (!Number.isFinite(this.exponent)) {
-      throw new RangeError("HugeNumber exponent exceeded the supported prototype range");
-    }
+    const shift = Math.floor(Math.log10(this.m));
+    this.m /= Math.pow(10, shift);
+    this.e += shift;
 
-    const shift = Math.floor(Math.log10(this.mantissa));
-    this.mantissa /= Math.pow(10, shift);
-    this.exponent += shift;
-
-    if (this.mantissa >= 10) {
-      this.mantissa /= 10;
-      this.exponent += 1;
-    } else if (this.mantissa < 1) {
-      this.mantissa *= 10;
-      this.exponent -= 1;
+    if (this.m >= 10) {
+      this.m /= 10;
+      this.e += 1;
+    } else if (this.m < 1) {
+      this.m *= 10;
+      this.e -= 1;
     }
 
     return this;
   }
 
-  isZero() {
-    return this.sign === 0;
-  }
-
-  negate() {
-    return HugeNumber.fromParts(-this.sign, this.mantissa, this.exponent);
-  }
-
-  absolute() {
-    return HugeNumber.fromParts(Math.abs(this.sign), this.mantissa, this.exponent);
-  }
-
-  compareAbsolute(otherValue) {
-    const other = HugeNumber.from(otherValue);
-    if (this.isZero()) return other.isZero() ? 0 : -1;
-    if (other.isZero()) return 1;
-    if (this.exponent !== other.exponent) return this.exponent > other.exponent ? 1 : -1;
-    if (this.mantissa === other.mantissa) return 0;
-    return this.mantissa > other.mantissa ? 1 : -1;
-  }
+  clone() { return new HugeNumber(this); }
+  isZero() { return this.m === 0; }
+  log10() { return this.isZero() ? -Infinity : this.e + Math.log10(this.m); }
+  toNumber() { return this.isZero() ? 0 : this.e > 308 ? Infinity : this.m * Math.pow(10, this.e); }
 
   compare(otherValue) {
     const other = HugeNumber.from(otherValue);
-    if (this.sign !== other.sign) return this.sign > other.sign ? 1 : -1;
-    if (this.sign === 0) return 0;
-    return this.sign * this.compareAbsolute(other);
+    if (this.isZero() && other.isZero()) return 0;
+    if (this.isZero()) return -1;
+    if (other.isZero()) return 1;
+    if (this.e !== other.e) return this.e > other.e ? 1 : -1;
+    if (this.m === other.m) return 0;
+    return this.m > other.m ? 1 : -1;
   }
 
-  equals(otherValue) {
-    return this.compare(otherValue) === 0;
-  }
-
-  greaterThan(otherValue) {
-    return this.compare(otherValue) > 0;
-  }
-
-  greaterThanOrEqual(otherValue) {
-    return this.compare(otherValue) >= 0;
-  }
-
-  lessThan(otherValue) {
-    return this.compare(otherValue) < 0;
-  }
-
-  lessThanOrEqual(otherValue) {
-    return this.compare(otherValue) <= 0;
-  }
+  eq(other) { return this.compare(other) === 0; }
+  gt(other) { return this.compare(other) > 0; }
+  gte(other) { return this.compare(other) >= 0; }
+  lt(other) { return this.compare(other) < 0; }
+  lte(other) { return this.compare(other) <= 0; }
 
   add(otherValue) {
     const other = HugeNumber.from(otherValue);
     if (this.isZero()) return other;
     if (other.isZero()) return this.clone();
-    if (this.sign !== other.sign) return this.subtract(other.negate());
-
-    const larger = this.compareAbsolute(other) >= 0 ? this : other;
-    const smaller = larger === this ? other : this;
-    const difference = larger.exponent - smaller.exponent;
+    const larger = this.gte(other) ? this : other;
+    const smaller = this.gte(other) ? other : this;
+    const difference = larger.e - smaller.e;
     if (difference > 16) return larger.clone();
-
-    const mantissa = larger.mantissa + smaller.mantissa * Math.pow(10, -difference);
-    return HugeNumber.fromParts(larger.sign, mantissa, larger.exponent);
+    return new HugeNumber({ m: larger.m + smaller.m * Math.pow(10, -difference), e: larger.e });
   }
 
-  subtract(otherValue) {
+  sub(otherValue) {
     const other = HugeNumber.from(otherValue);
     if (other.isZero()) return this.clone();
-    if (this.isZero()) return other.negate();
-    if (this.sign !== other.sign) return this.add(other.negate());
-
-    const comparison = this.compareAbsolute(other);
-    if (comparison === 0) return HugeNumber.zero();
-
-    const larger = comparison > 0 ? this : other;
-    const smaller = comparison > 0 ? other : this;
-    const difference = larger.exponent - smaller.exponent;
-    const mantissa = difference > 16
-      ? larger.mantissa
-      : larger.mantissa - smaller.mantissa * Math.pow(10, -difference);
-    const sign = comparison > 0 ? this.sign : -this.sign;
-    return HugeNumber.fromParts(sign, mantissa, larger.exponent);
+    if (this.lte(other)) return HugeNumber.zero();
+    const difference = this.e - other.e;
+    if (difference > 16) return this.clone();
+    return new HugeNumber({ m: this.m - other.m * Math.pow(10, -difference), e: this.e });
   }
 
-  multiply(otherValue) {
+  mul(otherValue) {
     const other = HugeNumber.from(otherValue);
     if (this.isZero() || other.isZero()) return HugeNumber.zero();
-    return HugeNumber.fromParts(
-      this.sign * other.sign,
-      this.mantissa * other.mantissa,
-      this.exponent + other.exponent
-    );
+    return new HugeNumber({ m: this.m * other.m, e: this.e + other.e });
   }
 
-  divide(otherValue) {
+  div(otherValue) {
     const other = HugeNumber.from(otherValue);
-    if (other.isZero()) throw new RangeError("Cannot divide by zero");
     if (this.isZero()) return HugeNumber.zero();
-    return HugeNumber.fromParts(
-      this.sign * other.sign,
-      this.mantissa / other.mantissa,
-      this.exponent - other.exponent
-    );
+    if (other.isZero()) return new HugeNumber({ m: 9.99999999999999, e: Number.MAX_VALUE });
+    return new HugeNumber({ m: this.m / other.m, e: this.e - other.e });
   }
 
-  power(exponent) {
-    const numericExponent = Number(exponent);
-    if (!Number.isFinite(numericExponent)) return HugeNumber.zero();
-    if (this.isZero()) return numericExponent === 0 ? HugeNumber.one() : HugeNumber.zero();
-    if (this.sign < 0 && !Number.isInteger(numericExponent)) return HugeNumber.zero();
-    const sign = this.sign < 0 && Math.abs(numericExponent % 2) === 1 ? -1 : 1;
-    const result = HugeNumber.fromLog10(this.log10() * numericExponent);
-    result.sign = sign;
-    return result;
+  pow(power) {
+    const numericPower = Number(power);
+    if (numericPower === 0) return HugeNumber.one();
+    if (this.isZero()) return HugeNumber.zero();
+    if (!Number.isFinite(numericPower)) return HugeNumber.zero();
+    return HugeNumber.fromLog10(this.log10() * numericPower);
   }
 
   floor() {
-    if (this.sign <= 0) {
-      if (this.sign === 0) return HugeNumber.zero();
-      return this.negate().ceil().negate();
-    }
-    if (this.exponent < 0) return HugeNumber.zero();
-    if (this.exponent >= 15) return this.clone();
+    if (this.isZero() || this.e < 0) return HugeNumber.zero();
+    if (this.e >= 15) return this.clone();
     return new HugeNumber(Math.floor(this.toNumber()));
   }
 
-  ceil() {
-    if (this.sign <= 0) {
-      if (this.sign === 0) return HugeNumber.zero();
-      return this.negate().floor().negate();
-    }
-    if (this.exponent < 0) return HugeNumber.one();
-    if (this.exponent >= 15) return this.clone();
-    return new HugeNumber(Math.ceil(this.toNumber()));
-  }
+  min(other) { return this.lte(other) ? this.clone() : HugeNumber.from(other); }
+  max(other) { return this.gte(other) ? this.clone() : HugeNumber.from(other); }
 
-  max(otherValue) {
-    return this.greaterThanOrEqual(otherValue) ? this.clone() : HugeNumber.from(otherValue);
-  }
-
-  log10() {
-    if (this.sign <= 0) return -Infinity;
-    return this.exponent + Math.log10(this.mantissa);
-  }
-
-  toNumber() {
-    if (this.isZero()) return 0;
-    if (this.exponent > 308) return this.sign * Infinity;
-    if (this.exponent < -324) return 0;
-    return this.sign * this.mantissa * Math.pow(10, this.exponent);
-  }
-
+  toJSON() { return this.toString(); }
   toString() {
     if (this.isZero()) return "0";
-    if (this.exponent >= -6 && this.exponent <= 20) {
-      const numeric = this.toNumber();
-      if (Number.isFinite(numeric)) return String(numeric);
-    }
-    const coefficient = Number(this.mantissa.toPrecision(15));
-    return `${this.sign < 0 ? "-" : ""}${coefficient}e${this.exponent}`;
-  }
-
-  toJSON() {
-    return this.toString();
+    const mantissa = Number(this.m.toPrecision(15)).toString();
+    return `${mantissa}e${Math.trunc(this.e)}`;
   }
 }
 
-const HN = value => HugeNumber.from(value);
+function parseCompactMagnitude(token) {
+  const match = String(token).trim().match(/^([+-]?\d+(?:\.\d+)?)([a-z]+)?$/i);
+  if (!match) return Number.NaN;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return Number.NaN;
+  const suffix = (match[2] || "").toUpperCase();
+  const suffixMap = { K: 1e3, M: 1e6, B: 1e9, T: 1e12, QA: 1e15, QN: 1e18 };
+  return value * (suffixMap[suffix] || 1);
+}
 
-/* ------------------------------- Game data ------------------------------- */
+function H(value = 0) { return HugeNumber.from(value); }
 
-const DEFAULT_STATE = Object.freeze({
-  version: GAME_VERSION,
-  power: "0",
-  prisms: 0,
-  rebirthPoints: "0",
-  insight: 0,
-  wind: 0,
-  windStorage: 0,
-  windWasted: 0,
-  powerUpgradeLevel: 0,
-  powerResonatorLevel: 0,
-  rebirthUpgradeLevel: 0,
-  rebirthCoreLevel: 0,
-  windTurbineLevel: 0,
-  prismProgress: 0,
-  prismYieldRemainder: 0,
-  treeLevels: {},
-  purchasedTreeNodes: [],
-  researchLevels: {},
-  purchasedResearchNodes: [],
-  ownedRunes: {},
-  runePity: 0,
-  runeCooldown: 0,
-  autoRuneEnabled: false,
-  autoPowerEnabled: false,
-  autoRebirthEnabled: false,
-  totalRebirths: 0,
-  totalPrestiges: 0,
-  prestigeLevel: 0,
-  totalRuneRolls: 0,
-  totalPlayTime: 0,
-  selectedCosmetic: "default",
-  unlockedCosmetics: ["default"],
-  lastRuneResults: [],
-  lastUpdateAt: Date.now()
-});
+/* --------------------------------- Config --------------------------------- */
 
-const PRESTIGE_TIERS = {
-  1: {
-    id: 1,
+const UPGRADE_CONFIG = {
+  flux: {
+    id: "flux",
+    group: "power",
+    name: "Flux Condenser",
+    tag: "POWER UPGRADE",
+    icon: "+",
+    description: "Adds +1 base Power/s per level.",
+    baseCost: H(5),
+    growth: 1.58,
+    cap: () => Infinity,
+    current: level => `+${formatLevelNumber(level)}/s`,
+    next: level => `+${formatLevelNumber(level + 1)}/s`
+  },
+  resonator: {
+    id: "resonator",
+    group: "power",
+    name: "Power Resonator",
+    tag: "POWER UPGRADE",
+    icon: "×",
+    description: "Multiplies total Power by ×1.25 per level.",
+    baseCost: H(20),
+    growth: 2.08,
+    cap: () => getResonatorCap(),
+    current: level => `×${formatHuge(H(1.25).pow(level))}`,
+    next: level => `×${formatHuge(H(1.25).pow(level + 1))}`
+  },
+  amplifier: {
+    id: "amplifier",
+    group: "rebirth",
+    name: "Rebirth Amplifier",
+    tag: "REBIRTH UPGRADE",
+    icon: "↟",
+    description: "Multiplies total Power by ×1.5 per level.",
+    baseCost: H(1),
+    growth: 3.25,
+    cap: () => getAmplifierCap(),
+    current: level => `×${formatHuge(H(1.5).pow(level))}`,
+    next: level => `×${formatHuge(H(1.5).pow(level + 1))}`
+  },
+  core: {
+    id: "core",
+    group: "rebirth",
+    name: "Rebirth Core",
+    tag: "REBIRTH UPGRADE",
+    icon: "◆",
+    description: "Adds +2 base Power/s per level.",
+    baseCost: H(2),
+    growth: 2.05,
+    cap: () => Infinity,
+    current: level => `+${formatLevelNumber(level * 2)}/s`,
+    next: level => `+${formatLevelNumber((level + 1) * 2)}/s`
+  }
+};
+
+const PRESTIGE_TIERS = [
+  {
+    tier: 1,
     name: "First Shift",
-    effects: {
-      unlocks: ["research", "wind", "runes", "powerAutomation", "prismExpansion", "autoRebirth"],
-      powerMultiplier: 2,
-      rebirthMultiplier: 1.5,
-      resonatorCapAdd: 10,
-      amplifierCapAdd: 10,
-      enableAutoPowerByDefault: true,
-      cosmetics: ["first-shift"],
-      defaultCosmetic: "first-shift"
-    },
+    baseCost: H("1e30"),
+    growth: H("1e18"),
     rewards: [
-      "Unlock Research and passive Insight",
-      "Unlock Wind Turbines and Wind storage",
-      "Unlock Runes and manual Rune rolling",
-      "Unlock automatic Power Upgrade purchases",
-      "Unlock additional Prism Tree branches",
-      "Permanent ×2 Power production",
-      "Permanent ×1.5 Rebirth Point gain",
-      "+10 Power Resonator level cap",
-      "+10 Rebirth Amplifier level cap",
-      "Unlock Automatic Rebirth",
-      "Unlock the First Shift interface theme"
+      ["Research", "Unlock Insight generation and the Research Tree."],
+      ["Wind", "Unlock Wind Turbines and storage."],
+      ["Runes", "Unlock the Wind-powered Rune system."],
+      ["Power automation", "Automatically purchase Power upgrades when enabled."],
+      ["Auto Rebirth", "Unlock an optional automatic Rebirth toggle."],
+      ["Expanded Prism Tree", "Reveal the Wind and post-shift Prism branches."],
+      ["Permanent Power", "One-time ×2 Power production."],
+      ["Permanent Rebirth", "One-time ×1.5 Rebirth Point gain."],
+      ["Limit breaks", "+10 Resonator cap and +10 Amplifier cap."],
+      ["First Shift theme", "Unlock the gold Shift accent." ]
     ]
   }
+];
+
+const PRISM_TREE_NODES = {
+  originLens: node("originLens", "Origin Lens", "◇", 750, 480, "prisms", 1, 1, [], "Stabilize the first Prism pathway.", "×1.20 total Power.", { powerMultiplier: 1.2 }),
+
+  currentChannel: node("currentChannel", "Current Channel", "↯", 555, 360, "prisms", 3, 10, ["originLens"], "Compress the main current into a denser flow.", "×1.15 Power per level.", { powerMultiplierPerLevel: 1.15 }, 1.85),
+  fluxEconomy: node("fluxEconomy", "Flux Economy", "−", 350, 245, "prisms", 4, 8, ["currentChannel"], "Reduce Power upgrade requirements.", "Power upgrade requirements −4% per level.", { powerCostReductionPerLevel: 0.04 }, 2.0),
+  overdriveArray: node("overdriveArray", "Overdrive Array", "+", 180, 390, "prisms", 20, 1, ["fluxEconomy"], "Converge the left branch into one amplified output.", "×2.5 total Power.", { powerMultiplier: 2.5 }),
+
+  rebirthFocus: node("rebirthFocus", "Rebirth Focus", "↻", 500, 620, "prisms", 4, 6, ["originLens"], "Strengthen the imprint recovered during Rebirth.", "×1.16 RP gain per level.", { rebirthMultiplierPerLevel: 1.16 }, 2.05),
+  recursiveMemory: node("recursiveMemory", "Recursive Memory", "R", 285, 755, "prisms", 16, 1, ["rebirthFocus"], "Preserve a stronger cycle memory.", "×1.75 Rebirth Point gain.", { rebirthMultiplier: 1.75 }),
+
+  pulseTuning: node("pulseTuning", "Pulse Tuning", "◷", 810, 260, "prisms", 3, 10, ["originLens"], "Shorten the Prism formation interval.", "Prism interval −1s per level.", { prismIntervalPerLevel: 1 }, 1.85),
+  splitSpectrum: node("splitSpectrum", "Split Spectrum", "◇+", 1005, 150, "prisms", 6, 8, ["pulseTuning"], "Produce more Prism from every completed cycle.", "×1.22 Prism gain per level.", { prismGainPerLevel: 1.22 }, 2.1),
+  chromaticClock: node("chromaticClock", "Chromatic Clock", "⌁", 1210, 260, "prisms", 30, 1, ["splitSpectrum"], "Synchronize every Prism pulse.", "Prism interval −5s.", { prismInterval: 5 }),
+
+  recovery90: node("recovery90", "Recovery Calibration", "90", 1010, 445, "prisms", 8, 1, ["originLens"], "Improve recovered production while offline.", "Offline efficiency becomes at least 90%.", { offlineEfficiencySet: 0.9 }),
+  recovery98: node("recovery98", "Deep Recovery", "98", 1215, 385, "prisms", 24, 1, ["recovery90"], "Recover almost all production from closed sessions.", "Offline efficiency becomes at least 98%.", { offlineEfficiencySet: 0.98 }),
+  recovery100: node("recovery100", "Perfect Recovery", "100", 1370, 500, "prisms", 75, 1, ["recovery98"], "Recover closed-session production without efficiency loss.", "Offline efficiency becomes 100%.", { offlineEfficiencySet: 1 }),
+
+  archive12: node("archive12", "Extended Archive", "12h", 980, 650, "prisms", 8, 1, ["originLens"], "Expand the amount of closed-session time that can be recovered.", "Offline limit becomes 12 hours.", { offlineLimitSet: 12 * 3600 }),
+  archive24: node("archive24", "Long Archive", "24h", 1170, 730, "prisms", 24, 1, ["archive12"], "Double the closed-session archive again.", "Offline limit becomes 24 hours.", { offlineLimitSet: 24 * 3600 }),
+  timelessArchive: node("timelessArchive", "Timeless Archive", "∞", 1365, 655, "prisms", 90, 1, ["archive24"], "Remove the closed-session time limit.", "Offline progression has no time limit.", { offlineUnlimited: true }),
+
+  windGate: node("windGate", "Aeolian Gate", "W", 720, 735, "prisms", 12, 1, ["originLens"], "Open the post-shift Wind branch.", "Unlock Wind Prism upgrades.", { windBranch: true }, 1, "prestige1"),
+  turbineMatrix: node("turbineMatrix", "Turbine Matrix", "✣", 900, 835, "wind", 20, 10, ["windGate"], "Increase Wind production from every turbine.", "×1.20 Wind output per level.", { windMultiplierPerLevel: 1.2 }, 1.8, "wind"),
+  reservoirLattice: node("reservoirLattice", "Reservoir Lattice", "▣", 1100, 870, "wind", 25, 10, ["turbineMatrix"], "Expand the Wind storage buffer.", "×1.35 Wind capacity per level.", { windCapacityPerLevel: 1.35 }, 1.9, "wind"),
+  collectorGrip: node("collectorGrip", "Collector Grip", "⇩", 1270, 815, "wind", 18, 6, ["reservoirLattice"], "Capture more Wind with every manual collection.", "+25 Wind collected per click per level.", { windCollectPerLevel: 25 }, 2.0, "wind"),
+
+  insightPrism: node("insightPrism", "Insight Refraction", "◆", 610, 140, "prisms", 45, 5, ["pulseTuning"], "Route Prism resonance into the Research layer.", "×1.15 Insight gain per level.", { insightMultiplierPerLevel: 1.15 }, 2.3, "researchBranch")
 };
 
-const TREE_NODES = {
-  originLens: {
-    id: "originLens", name: "Origin Lens", category: "ROOT NODE", branch: "root", icon: "◇",
-    x: 49, y: 51, cost: 1, costGrowth: 1, maxLevel: 1, prerequisites: [], currency: "prisms",
-    description: "Stabilize the first junction of the Prism network.", effect: "powerMultiplier", value: 1.1
-  },
-  currentChannel: {
-    id: "currentChannel", name: "Current Channel", category: "POWER BRANCH", branch: "power", icon: "⚡",
-    x: 35, y: 39, cost: 3, costGrowth: 1.72, maxLevel: 10, prerequisites: ["originLens"], currency: "prisms",
-    description: "Repeatably redirect Prism energy into the Power stream.", effect: "powerMultiplier", value: 1.12
-  },
-  compressedFlow: {
-    id: "compressedFlow", name: "Compressed Flow", category: "POWER BRANCH", branch: "power", icon: "↯",
-    x: 23, y: 24, cost: 10, costGrowth: 1, maxLevel: 1, prerequisites: ["currentChannel"], currency: "prisms",
-    description: "Compress the stream into a denser production cycle.", effect: "powerMultiplier", value: 1.5
-  },
-  overdriveArray: {
-    id: "overdriveArray", name: "Overdrive Array", category: "POWER CAPSTONE", branch: "power", icon: "✦",
-    x: 8, y: 37, cost: 22, costGrowth: 1, maxLevel: 1, prerequisites: ["compressedFlow"], currency: "prisms",
-    description: "Push the Power stream beyond its normal operating range.", effect: "powerMultiplier", value: 2
-  },
-  pulseTuning: {
-    id: "pulseTuning", name: "Pulse Tuning", category: "PRISM SPEED", branch: "prism-speed", icon: "◷",
-    x: 53, y: 31, cost: 4, costGrowth: 1.86, maxLevel: 8, prerequisites: ["originLens"], currency: "prisms",
-    description: "Repeatably shorten the time needed to form each Prism.", effect: "prismIntervalMultiplier", value: 0.96
-  },
-  chromaticFrequency: {
-    id: "chromaticFrequency", name: "Chromatic Frequency", category: "PRISM SPEED", branch: "prism-speed", icon: "⌁",
-    x: 66, y: 18, cost: 12, costGrowth: 1, maxLevel: 1, prerequisites: ["pulseTuning"], currency: "prisms",
-    description: "Synchronize the Prism cycle with a higher frequency.", effect: "prismIntervalMultiplier", value: 0.9
-  },
-  rapidSpectrum: {
-    id: "rapidSpectrum", name: "Rapid Spectrum", category: "PRISM SPEED CAPSTONE", branch: "prism-speed", icon: "»",
-    x: 83, y: 12, cost: 26, costGrowth: 1, maxLevel: 1, prerequisites: ["chromaticFrequency"], currency: "prisms",
-    description: "Collapse the final delay between Prism formations.", effect: "prismIntervalMultiplier", value: 0.85
-  },
-  splitSpectrum: {
-    id: "splitSpectrum", name: "Split Spectrum", category: "PRISM MULTIPLIER", branch: "prism-multi", icon: "◆",
-    x: 66, y: 48, cost: 5, costGrowth: 2, maxLevel: 6, prerequisites: ["originLens"], currency: "prisms",
-    description: "Repeatably increase the Prism yield of every completed cycle.", effect: "prismGainMultiplier", value: 1.25
-  },
-  mirroredYield: {
-    id: "mirroredYield", name: "Mirrored Yield", category: "PRISM MULTIPLIER", branch: "prism-multi", icon: "◈",
-    x: 80, y: 35, cost: 16, costGrowth: 1, maxLevel: 1, prerequisites: ["splitSpectrum"], currency: "prisms",
-    description: "Mirror the output produced by every Prism cycle.", effect: "prismGainMultiplier", value: 2
-  },
-  spectrumBloom: {
-    id: "spectrumBloom", name: "Spectrum Bloom", category: "PRISM MULTIPLIER CAPSTONE", branch: "prism-multi", icon: "✺",
-    x: 93, y: 24, cost: 34, costGrowth: 1, maxLevel: 1, prerequisites: ["mirroredYield"], currency: "prisms",
-    description: "Expand every Prism cycle into a larger chromatic bloom.", effect: "prismGainMultiplier", value: 3
-  },
-  recoveryCalibration: {
-    id: "recoveryCalibration", name: "Recovery Calibration", category: "OFFLINE EFFICIENCY", branch: "offline-efficiency", icon: "90",
-    x: 37, y: 69, cost: 6, costGrowth: 1, maxLevel: 1, prerequisites: ["originLens"], currency: "prisms",
-    description: "Reduce the production loss that occurs while the game is closed.", effect: "offlineEfficiency", value: 0.9
-  },
-  deepRecovery: {
-    id: "deepRecovery", name: "Deep Recovery", category: "OFFLINE EFFICIENCY", branch: "offline-efficiency", icon: "98",
-    x: 21, y: 81, cost: 16, costGrowth: 1, maxLevel: 1, prerequisites: ["recoveryCalibration"], currency: "prisms",
-    description: "Preserve nearly all production while the game is closed.", effect: "offlineEfficiency", value: 0.98
-  },
-  perfectRecovery: {
-    id: "perfectRecovery", name: "Perfect Recovery", category: "OFFLINE EFFICIENCY CAPSTONE", branch: "offline-efficiency", icon: "100",
-    x: 7, y: 67, cost: 36, costGrowth: 1, maxLevel: 1, prerequisites: ["deepRecovery"], currency: "prisms",
-    description: "Remove the remaining offline production penalty.", effect: "offlineEfficiency", value: 1
-  },
-  extendedMemory: {
-    id: "extendedMemory", name: "Extended Memory", category: "OFFLINE DURATION", branch: "offline-duration", icon: "12h",
-    x: 58, y: 70, cost: 6, costGrowth: 1, maxLevel: 1, prerequisites: ["originLens"], currency: "prisms",
-    description: "Store a longer period of closed-game progression.", effect: "offlineLimit", value: 12 * 60 * 60
-  },
-  persistentMemory: {
-    id: "persistentMemory", name: "Persistent Memory", category: "OFFLINE DURATION", branch: "offline-duration", icon: "24h",
-    x: 73, y: 82, cost: 18, costGrowth: 1, maxLevel: 1, prerequisites: ["extendedMemory"], currency: "prisms",
-    description: "Preserve a full day of closed-game progression.", effect: "offlineLimit", value: 24 * 60 * 60
-  },
-  timelessArchive: {
-    id: "timelessArchive", name: "Timeless Archive", category: "OFFLINE DURATION CAPSTONE", branch: "offline-duration", icon: "∞",
-    x: 91, y: 68, cost: 40, costGrowth: 1, maxLevel: 1, prerequisites: ["persistentMemory"], currency: "prisms",
-    description: "Store all closed-game progression without a time limit.", effect: "offlineLimit", value: Infinity
-  },
-  shiftedLens: {
-    id: "shiftedLens", name: "Shifted Lens", category: "PRESTIGE BRANCH", branch: "prestige", icon: "★",
-    x: 49, y: 88, cost: 55, costGrowth: 1, maxLevel: 1, prerequisites: ["extendedMemory"], currency: "prisms", prestigeGate: 1,
-    description: "Use the First Shift to expose a permanent lower branch.", effect: "powerMultiplier", value: 2
-  },
-  insightRefraction: {
-    id: "insightRefraction", name: "Insight Refraction", category: "PRESTIGE BRANCH", branch: "prestige", icon: "I",
-    x: 34, y: 94, cost: 75, costGrowth: 1, maxLevel: 1, prerequisites: ["shiftedLens"], currency: "prisms", prestigeGate: 1, researchGate: "prismExpansion",
-    description: "Refract Prism structure into a stronger Insight stream.", effect: "insightMultiplier", value: 1.25
-  },
-  windConduit: {
-    id: "windConduit", name: "Wind Conduit", category: "WIND BRANCH", branch: "wind", icon: "W",
-    x: 83, y: 55, cost: 15, costGrowth: 1, maxLevel: 1, prerequisites: ["splitSpectrum"], currency: "wind", prestigeGate: 1,
-    description: "Connect stored Wind to the Prism network.", effect: "windOutputMultiplier", value: 1.5
-  },
-  turbineArray: {
-    id: "turbineArray", name: "Turbine Limit Array", category: "WIND BRANCH", branch: "wind", icon: "+T",
-    x: 94, y: 45, cost: 28, costGrowth: 1.9, maxLevel: 4, prerequisites: ["windConduit"], currency: "wind", prestigeGate: 1,
-    description: "Raise the maximum number of Wind Turbines.", effect: "windTurbineCapAdd", value: 5
-  },
-  windReservoir: {
-    id: "windReservoir", name: "Wind Reservoir", category: "WIND BRANCH", branch: "wind", icon: "□",
-    x: 92, y: 62, cost: 22, costGrowth: 1.75, maxLevel: 6, prerequisites: ["windConduit"], currency: "wind", prestigeGate: 1,
-    description: "Expand the capped Wind storage buffer.", effect: "windStorageMultiplier", value: 1.5
-  },
-  collectionGrip: {
-    id: "collectionGrip", name: "Collection Grip", category: "WIND BRANCH", branch: "wind", icon: "↧",
-    x: 78, y: 72, cost: 14, costGrowth: 1.65, maxLevel: 5, prerequisites: ["windConduit"], currency: "wind", prestigeGate: 1,
-    description: "Collect more stored Wind with each manual press.", effect: "windCollectMultiplier", value: 2
-  },
-  galeLattice: {
-    id: "galeLattice", name: "Gale Lattice", category: "WIND CAPSTONE", branch: "wind", icon: "✧",
-    x: 91, y: 84, cost: 180, costGrowth: 1, maxLevel: 1, prerequisites: ["windReservoir", "collectionGrip"], currency: "wind", prestigeGate: 1, researchGate: "prismExpansion",
-    description: "Route the completed Wind branch back into turbine output.", effect: "windOutputMultiplier", value: 2
-  }
-};
-
-const TREE_CONNECTIONS = [
-  ["originLens", "currentChannel"], ["currentChannel", "compressedFlow"], ["compressedFlow", "overdriveArray"],
-  ["originLens", "pulseTuning"], ["pulseTuning", "chromaticFrequency"], ["chromaticFrequency", "rapidSpectrum"],
-  ["originLens", "splitSpectrum"], ["splitSpectrum", "mirroredYield"], ["mirroredYield", "spectrumBloom"],
-  ["originLens", "recoveryCalibration"], ["recoveryCalibration", "deepRecovery"], ["deepRecovery", "perfectRecovery"],
-  ["originLens", "extendedMemory"], ["extendedMemory", "persistentMemory"], ["persistentMemory", "timelessArchive"],
-  ["extendedMemory", "shiftedLens"], ["shiftedLens", "insightRefraction"],
-  ["splitSpectrum", "windConduit"], ["windConduit", "turbineArray"], ["windConduit", "windReservoir"],
-  ["windConduit", "collectionGrip"], ["windReservoir", "galeLattice"], ["collectionGrip", "galeLattice"]
+const PRISM_CONNECTIONS = [
+  ["originLens", "currentChannel"], ["currentChannel", "fluxEconomy"], ["fluxEconomy", "overdriveArray"],
+  ["originLens", "rebirthFocus"], ["rebirthFocus", "recursiveMemory"],
+  ["originLens", "pulseTuning"], ["pulseTuning", "splitSpectrum"], ["splitSpectrum", "chromaticClock"],
+  ["originLens", "recovery90"], ["recovery90", "recovery98"], ["recovery98", "recovery100"],
+  ["originLens", "archive12"], ["archive12", "archive24"], ["archive24", "timelessArchive"],
+  ["originLens", "windGate"], ["windGate", "turbineMatrix"], ["turbineMatrix", "reservoirLattice"], ["reservoirLattice", "collectorGrip"],
+  ["pulseTuning", "insightPrism"]
 ];
 
 const RESEARCH_NODES = {
-  firstObservation: {
-    id: "firstObservation", name: "First Observation", category: "FOUNDATION", branch: "research-root", icon: "I",
-    x: 50, y: 50, cost: 3, prerequisites: [], description: "Record the first stable law revealed by the Shift.",
-    effect: "powerMultiplier", value: 1.05, effectText: "×1.05 total Power production"
-  },
-  resonanceTheory: {
-    id: "resonanceTheory", name: "Resonance Theory", category: "LIMIT BREAK", branch: "research-power", icon: "R+",
-    x: 34, y: 35, cost: 8, prerequisites: ["firstObservation"], description: "Extend the safe operating range of the Power Resonator.",
-    effect: "resonatorCapAdd", value: 15, effectText: "+15 Power Resonator cap"
-  },
-  rebirthTheory: {
-    id: "rebirthTheory", name: "Rebirth Theory", category: "LIMIT BREAK", branch: "research-rebirth", icon: "A+",
-    x: 67, y: 35, cost: 8, prerequisites: ["firstObservation"], description: "Extend the stable range of the Rebirth Amplifier.",
-    effect: "amplifierCapAdd", value: 12, effectText: "+12 Rebirth Amplifier cap"
-  },
-  analyticCurrent: {
-    id: "analyticCurrent", name: "Analytic Current", category: "PASSIVE BONUS", branch: "research-power", icon: "%",
-    x: 20, y: 23, cost: 18, prerequisites: ["resonanceTheory"], description: "Apply measured corrections to every Power cycle.",
-    effect: "powerMultiplier", value: 1.1, effectText: "×1.10 total Power production"
-  },
-  windAutomation: {
-    id: "windAutomation", name: "Closed-loop Collection", category: "AUTOMATION", branch: "research-power", icon: "W↻",
-    x: 27, y: 55, cost: 20, prerequisites: ["resonanceTheory"], description: "Automatically move Wind from storage into the spendable balance.",
-    effect: "windAutoCollect", value: 1, effectText: "Unlock Wind auto-collection"
-  },
-  runeMechanics: {
-    id: "runeMechanics", name: "Runic Mechanism", category: "AUTOMATION", branch: "research-rebirth", icon: "◈↻",
-    x: 74, y: 54, cost: 22, prerequisites: ["rebirthTheory"], description: "Automate Rune rolling while still paying the normal Wind cost.",
-    effect: "runeAutoRoll", value: 1, effectText: "Unlock Rune auto-roll"
-  },
-  frugalRolls: {
-    id: "frugalRolls", name: "Frugal Inscription", category: "RUNE STUDY", branch: "research-rune", icon: "−W",
-    x: 87, y: 39, cost: 30, prerequisites: ["runeMechanics"], description: "Reduce the Wind consumed by every Rune batch.",
-    effect: "runeCostMultiplier", value: 0.9, effectText: "Rune rolls cost 10% less Wind"
-  },
-  weightedFate: {
-    id: "weightedFate", name: "Weighted Fate", category: "RUNE STUDY", branch: "research-rune", icon: "P−",
-    x: 88, y: 67, cost: 34, prerequisites: ["runeMechanics"], description: "Shorten the guaranteed rare-or-better pity cycle.",
-    effect: "pityReduction", value: 15, effectText: "Pity threshold reduced by 15 rolls"
-  },
-  prismExpansion: {
-    id: "prismExpansion", name: "Prism Expansion", category: "NETWORK ACCESS", branch: "research-prism", icon: "◇+",
-    x: 50, y: 72, cost: 28, prerequisites: ["firstObservation"], description: "Reveal deeper Prestige and Wind branches in the Prism Tree.",
-    effect: "prismExpansion", value: 1, effectText: "Unlock additional Prism Tree nodes"
-  },
-  spectrumStudy: {
-    id: "spectrumStudy", name: "Spectrum Study", category: "PASSIVE BONUS", branch: "research-prism", icon: "◇%",
-    x: 63, y: 87, cost: 35, prerequisites: ["prismExpansion"], description: "Extract slightly more material from each Prism cycle.",
-    effect: "prismGainMultiplier", value: 1.1, effectText: "×1.10 Prism gain"
-  },
-  recoveryModel: {
-    id: "recoveryModel", name: "Recovery Model", category: "PASSIVE BONUS", branch: "research-prism", icon: "O%",
-    x: 37, y: 88, cost: 35, prerequisites: ["prismExpansion"], description: "Recover a small portion of remaining offline production loss.",
-    effect: "offlineEfficiencyBonus", value: 0.02, effectText: "+2% offline efficiency, capped at 100%"
-  }
+  firstObservation: research("firstObservation", "First Observation", "◆", 650, 450, 1, [], "Establish a stable post-shift research process.", "Unlock the first protocol branches.", {}),
+
+  kineticDoctrine: research("kineticDoctrine", "Kinetic Doctrine", "⚡", 455, 320, 4, ["firstObservation"], "Focus Research on immediate production.", "+25% Power production.", { powerPercent: 0.25 }, "researchFocus"),
+  recursiveDoctrine: research("recursiveDoctrine", "Recursive Doctrine", "↻", 455, 585, 4, ["firstObservation"], "Focus Research on long-term analysis.", "×1.30 Insight generation.", { insightMultiplier: 1.3 }, "researchFocus"),
+
+  resonatorBreak1: research("resonatorBreak1", "Resonator Limit I", "×", 265, 210, 12, ["kineticDoctrine"], "Expand the safe Power Resonator range.", "+15 Power Resonator cap.", { resonatorCap: 15 }),
+  resonatorBreak2: research("resonatorBreak2", "Resonator Limit II", "×+", 95, 305, 45, ["resonatorBreak1"], "Break the Resonator limit again.", "+25 Power Resonator cap.", { resonatorCap: 25 }),
+  freeCircuitry: research("freeCircuitry", "Lossless Circuitry", "0", 255, 435, 55, ["firstObservation"], "Power upgrades still require their listed Power, but purchasing them no longer consumes it.", "Power upgrade purchases do not spend Power.", { freePowerUpgrades: true }),
+
+  amplifierBreak1: research("amplifierBreak1", "Amplifier Limit I", "↟", 265, 700, 14, ["recursiveDoctrine"], "Increase the stable Rebirth Amplifier range.", "+12 Rebirth Amplifier cap.", { amplifierCap: 12 }),
+  amplifierBreak2: research("amplifierBreak2", "Amplifier Limit II", "↟+", 90, 620, 52, ["amplifierBreak1"], "Extend the Rebirth Amplifier range again.", "+20 Rebirth Amplifier cap.", { amplifierCap: 20 }),
+  rebirthContinuity: research("rebirthContinuity", "Rebirth Continuity", "∞", 280, 805, 38, ["firstObservation"], "Rebirth no longer removes current Power. Previously claimed Power cannot be claimed twice.", "Rebirth preserves current Power.", { preservePowerOnRebirth: true }),
+
+  windAutomation: research("windAutomation", "Closed-Loop Collection", "W", 820, 285, 10, ["firstObservation"], "Route Wind storage directly into the collected supply.", "Unlock automatic Wind collection.", { autoWind: true }),
+  rebirthUpgradeAutomation: research("rebirthUpgradeAutomation", "Recursive Purchasing", "R+", 1030, 205, 26, ["windAutomation"], "Automate permanent Rebirth module purchasing.", "Unlock automatic Rebirth Upgrade purchases.", { autoRebirthUpgrades: true }),
+  prismExpansion: research("prismExpansion", "Prismatic Survey", "◇", 1040, 355, 20, ["windAutomation"], "Reveal a new post-shift branch in the Prism Tree.", "Unlock Insight Refraction in the Prism Tree.", { researchBranch: true }),
+
+  runeAutomation: research("runeAutomation", "Rune Sequencer", "ᚱ", 820, 610, 18, ["firstObservation"], "Allow the Rune chamber to repeat rolls automatically.", "Unlock Rune auto-roll.", { autoRune: true }),
+  runeLuck1: research("runeLuck1", "Probability Lens I", "☘", 1005, 530, 8, ["runeAutomation"], "Bend Rune outcomes toward rarer patterns.", "+2 Rune Luck.", { runeLuck: 2 }),
+  runeLuck2: research("runeLuck2", "Probability Lens II", "☘+", 1180, 470, 30, ["runeLuck1"], "Improve the Probability Lens without removing diminishing returns.", "+4 Rune Luck.", { runeLuck: 4 }),
+  runeBulk1: research("runeBulk1", "Parallel Etching I", "×2", 1030, 660, 12, ["runeAutomation"], "Etch an additional Rune during every paid roll.", "+1 Rune Bulk.", { runeBulk: 1 }),
+  runeBulk2: research("runeBulk2", "Parallel Etching II", "×3", 1200, 720, 42, ["runeBulk1"], "Add another parallel etching channel.", "+1 Rune Bulk.", { runeBulk: 1 }),
+  runeSpeed1: research("runeSpeed1", "Rapid Inscription I", "▶", 860, 790, 9, ["runeAutomation"], "Reduce Rune chamber recovery time.", "Rune cooldown ×0.80.", { runeSpeedMultiplier: 0.8 }),
+  runeSpeed2: research("runeSpeed2", "Rapid Inscription II", "▶▶", 1035, 825, 28, ["runeSpeed1"], "Accelerate inscriptions again.", "Rune cooldown ×0.75.", { runeSpeedMultiplier: 0.75 }),
+  runeSpeed3: research("runeSpeed3", "Rapid Inscription III", "▶▶▶", 1210, 835, 70, ["runeSpeed2"], "Approach the stable minimum Rune cooldown.", "Rune cooldown ×0.70.", { runeSpeedMultiplier: 0.7 }),
+  runeCost: research("runeCost", "Efficient Etching", "−W", 1190, 585, 22, ["runeLuck1", "runeBulk1"], "Reduce Wind lost during Rune formation.", "Rune roll cost −25%.", { runeCostMultiplier: 0.75 }),
+  pityTuning: research("pityTuning", "Pity Calibration", "!", 1160, 335, 34, ["runeLuck1"], "Guarantee a Harmonic-or-better Rune sooner.", "Pity threshold −20 rolls.", { pityReduction: 20 }),
+
+  offlineAnalysis: research("offlineAnalysis", "Dormant Analysis", "Z", 820, 455, 24, ["firstObservation"], "Improve passive recovery without exceeding 100% efficiency.", "+3% offline efficiency and +15% Prism gain.", { offlineEfficiency: 0.03, prismPercent: 0.15 })
 };
 
 const RESEARCH_CONNECTIONS = [
-  ["firstObservation", "resonanceTheory"], ["firstObservation", "rebirthTheory"], ["firstObservation", "prismExpansion"],
-  ["resonanceTheory", "analyticCurrent"], ["resonanceTheory", "windAutomation"],
-  ["rebirthTheory", "runeMechanics"], ["runeMechanics", "frugalRolls"], ["runeMechanics", "weightedFate"],
-  ["prismExpansion", "spectrumStudy"], ["prismExpansion", "recoveryModel"]
+  ["firstObservation", "kineticDoctrine"], ["firstObservation", "recursiveDoctrine"],
+  ["kineticDoctrine", "resonatorBreak1"], ["resonatorBreak1", "resonatorBreak2"], ["firstObservation", "freeCircuitry"],
+  ["recursiveDoctrine", "amplifierBreak1"], ["amplifierBreak1", "amplifierBreak2"], ["firstObservation", "rebirthContinuity"],
+  ["firstObservation", "windAutomation"], ["windAutomation", "rebirthUpgradeAutomation"], ["windAutomation", "prismExpansion"],
+  ["firstObservation", "runeAutomation"], ["runeAutomation", "runeLuck1"], ["runeLuck1", "runeLuck2"],
+  ["runeAutomation", "runeBulk1"], ["runeBulk1", "runeBulk2"], ["runeAutomation", "runeSpeed1"],
+  ["runeSpeed1", "runeSpeed2"], ["runeSpeed2", "runeSpeed3"], ["runeLuck1", "runeCost"], ["runeBulk1", "runeCost"],
+  ["runeLuck1", "pityTuning"], ["firstObservation", "offlineAnalysis"]
 ];
 
-const RARITY_TIERS = [
-  { id: "eternal", name: "Eternal", chance: 1e-50, displayOdds: "1 / 1e50", rank: 5 },
-  { id: "astral", name: "Astral", chance: 1e-10, displayOdds: "1 / 10B", rank: 4 },
-  { id: "luminous", name: "Luminous", chance: 1e-6, displayOdds: "1 / 1M", rank: 3 },
-  { id: "resonant", name: "Resonant", chance: 1e-3, displayOdds: "1 / 1,000", rank: 2 },
-  { id: "charged", name: "Charged", chance: 0.1, displayOdds: "1 / 10", rank: 1 },
-  { id: "faint", name: "Faint", chance: 1, displayOdds: "Common", rank: 0 }
-];
-
-const RUNE_DEFINITIONS = {
-  pulseEtching: { id: "pulseEtching", name: "Pulse Etching", rarity: "faint", icon: "P", effect: "powerMultiplier", base: 0.003, description: "Modestly multiplies Power production." },
-  glassEcho: { id: "glassEcho", name: "Glass Echo", rarity: "faint", icon: "◇", effect: "prismMultiplier", base: 0.0025, description: "Modestly increases Prism gain." },
-  galeCircuit: { id: "galeCircuit", name: "Gale Circuit", rarity: "charged", icon: "W", effect: "windMultiplier", base: 0.006, description: "Increases Wind Turbine output." },
-  secondDawn: { id: "secondDawn", name: "Second Dawn", rarity: "charged", icon: "R", effect: "rebirthMultiplier", base: 0.005, description: "Increases Rebirth Point gain." },
-  chronicleLoop: { id: "chronicleLoop", name: "Chronicle Loop", rarity: "resonant", icon: "◷", effect: "runeSpeed", base: 1.2, description: "Reduces Rune roll cooldown with diminishing returns." },
-  fortuneLattice: { id: "fortuneLattice", name: "Fortune Lattice", rarity: "resonant", icon: "✦", effect: "runeLuck", base: 1.4, description: "Improves rarer Rune odds with diminishing returns." },
-  manyfoldSeal: { id: "manyfoldSeal", name: "Manyfold Seal", rarity: "luminous", icon: "×", effect: "runeBulk", base: 0.7, description: "Increases Runes produced per paid roll, up to the bulk cap." },
-  insightCorona: { id: "insightCorona", name: "Insight Corona", rarity: "luminous", icon: "I", effect: "insightMultiplier", base: 0.012, description: "Increases passive Insight generation." },
-  voidRelay: { id: "voidRelay", name: "Void Relay", rarity: "astral", icon: "V", effect: "powerMultiplier", base: 0.018, description: "A stronger multiplicative Power effect." },
-  memoryHalo: { id: "memoryHalo", name: "Memory Halo", rarity: "astral", icon: "O", effect: "offlineEfficiency", base: 0.0012, description: "Adds a small capped offline-efficiency bonus." },
-  eonCrown: { id: "eonCrown", name: "Eon Crown", rarity: "eternal", icon: "★", effect: "allProduction", base: 0.04, description: "Multiplies Power, Prism, Wind, Insight, and Rebirth gains." },
-  parallaxSeed: { id: "parallaxSeed", name: "Parallax Seed", rarity: "eternal", icon: "∞", effect: "powerMultiplier", base: 0.055, description: "A rare multiplicative Power effect with diminishing level scaling." }
+const RARITIES = {
+  trace: { name: "Trace", logDenominator: 0, className: "trace" },
+  charged: { name: "Charged", logDenominator: Math.log10(4), className: "charged" },
+  harmonic: { name: "Harmonic", logDenominator: Math.log10(80), className: "harmonic" },
+  celestial: { name: "Celestial", logDenominator: Math.log10(5000), className: "celestial" },
+  paradox: { name: "Paradox", logDenominator: 12, className: "paradox" },
+  eternal: { name: "Eternal", logDenominator: 50, className: "eternal" }
 };
 
-const UPGRADE_DEFINITIONS = {
-  powerUpgradeLevel: { baseCost: 5, growth: 1.45, currencyField: "power", rounded: false, name: "Flux Condenser", cap: () => Infinity },
-  powerResonatorLevel: { baseCost: 20, growth: 1.65, currencyField: "power", rounded: false, name: "Power Resonator", cap: () => getPowerResonatorCap() },
-  rebirthUpgradeLevel: { baseCost: 1, growth: 1.82, currencyField: "rebirthPoints", rounded: true, name: "Rebirth Amplifier", cap: () => getRebirthAmplifierCap() },
-  rebirthCoreLevel: { baseCost: 2, growth: 1.9, currencyField: "rebirthPoints", rounded: true, name: "Rebirth Core", cap: () => Infinity },
-  windTurbineLevel: { baseCost: "1e5", growth: 1.8, currencyField: "power", rounded: false, name: "Wind Turbine", cap: () => getWindTurbineCap() }
+const RUNES = {
+  currentSigil: rune("currentSigil", "Current Sigil", "ϟ", "trace", "power", 0.022, "Power production"),
+  condenserMark: rune("condenserMark", "Condenser Mark", "+", "trace", "power", 0.018, "Power production"),
+  aeolianTrace: rune("aeolianTrace", "Aeolian Trace", "W", "trace", "wind", 0.020, "Wind production"),
+  memoryGlyph: rune("memoryGlyph", "Memory Glyph", "↻", "charged", "rebirth", 0.018, "Rebirth Point gain"),
+  chromaSeal: rune("chromaSeal", "Chroma Seal", "◇", "charged", "prisms", 0.020, "Prism gain"),
+  thoughtSpiral: rune("thoughtSpiral", "Thought Spiral", "◆", "charged", "insight", 0.020, "Insight generation"),
+  velocityScript: rune("velocityScript", "Velocity Script", "▶", "harmonic", "runeSpeed", 0.012, "Rune speed"),
+  fortuneCircuit: rune("fortuneCircuit", "Fortune Circuit", "☘", "harmonic", "runeLuck", 0.11, "Rune Luck"),
+  resonantCrown: rune("resonantCrown", "Resonant Crown", "♢", "celestial", "power", 0.025, "Power production"),
+  prismChoir: rune("prismChoir", "Prism Choir", "◈", "celestial", "prisms", 0.025, "Prism gain"),
+  parallelScript: rune("parallelScript", "Parallel Script", "≋", "paradox", "runeBulk", 1, "Rune Bulk milestones"),
+  eonHeart: rune("eonHeart", "Eon Heart", "✦", "eternal", "allCore", 0.030, "Power, RP, Prism, Wind and Insight")
 };
 
-let state = createFreshState();
-let selectedTreeNodeId = null;
-let selectedResearchNodeId = null;
-let activePage = "power";
-let lastTickAt = Date.now();
-let autosaveAccumulator = 0;
-let toastTimeout = null;
-let tickTimer = null;
-let lastOfflineReport = null;
-let visibilityWasHidden = document.hidden;
-let hiddenOfflineConsumedSeconds = 0;
-let lastAutoRebirthAt = 0;
-const elements = {};
+function node(id, name, icon, x, y, currency, baseCost, maxLevel, prerequisites, description, effectText, effects, growth = 1, unlock = null) {
+  return { id, name, icon, x, y, currency, baseCost: H(baseCost), maxLevel, prerequisites, description, effectText, effects, growth, unlock };
+}
 
-function createFreshState() {
+function research(id, name, icon, x, y, cost, prerequisites, description, effectText, effects, exclusiveGroup = null) {
+  return { id, name, icon, x, y, cost: H(cost), prerequisites, description, effectText, effects, exclusiveGroup };
+}
+
+function rune(id, name, symbol, rarity, effectType, strength, effectLabel) {
+  return { id, name, symbol, rarity, effectType, strength, effectLabel };
+}
+
+/* ---------------------------------- State --------------------------------- */
+
+function defaultState() {
   return {
-    ...DEFAULT_STATE,
-    power: HugeNumber.zero(),
-    rebirthPoints: HugeNumber.zero(),
+    version: GAME_VERSION,
+    power: H(0),
+    prisms: H(0),
+    rebirthPoints: H(0),
+    insight: H(0),
+    wind: H(0),
+    windStorage: H(0),
+    wastedWind: H(0),
+    powerUpgrades: { flux: 0, resonator: 0 },
+    rebirthUpgrades: { amplifier: 0, core: 0 },
     treeLevels: {},
-    purchasedTreeNodes: [],
-    researchLevels: {},
     purchasedResearchNodes: [],
+    windTurbines: 0,
     ownedRunes: {},
-    unlockedCosmetics: ["default"],
-    lastRuneResults: [],
-    lastUpdateAt: Date.now()
+    runePity: 0,
+    runeCooldown: 0,
+    totalRuneRolls: 0,
+    totalRebirths: 0,
+    totalPrestiges: 0,
+    prestigeLevel: 0,
+    rebirthClaimedBase: H(0),
+    prismProgress: 0,
+    totalPlayTime: 0,
+    lastUpdate: Date.now(),
+    notation: "mixed",
+    autoPowerEnabled: true,
+    autoRebirthEnabled: false,
+    autoRebirthUpgradesEnabled: false,
+    autoRuneEnabled: false,
+    lastRuneResult: ""
   };
 }
 
-function cacheElements() {
-  const ids = [
-    "headerPower", "headerPowerRate", "headerPrism", "headerPrismTimer", "headerRebirthPoints",
-    "headerInsightChip", "headerInsight", "headerInsightRate", "headerWindChip", "headerWind", "headerWindRate", "saveStatus",
-    "researchNav", "windNav", "runesNav",
-    "powerAmount", "powerPerSecond", "powerAutomationPanel", "autoPowerToggle",
-    "powerUpgradeLevel", "powerUpgradeEffect", "powerUpgradeNextEffect", "powerUpgradeCost", "buyPowerUpgrade", "buyMaxPowerUpgrade",
-    "powerResonatorLevel", "powerResonatorEffect", "powerResonatorNextEffect", "powerResonatorCost", "buyPowerResonator", "buyMaxPowerResonator",
-    "rebirthAutomationPanel", "autoRebirthToggle", "rebirthGain", "rebirthRequirementText", "rebirthButton",
-    "rebirthUpgradeLevel", "rebirthUpgradeEffect", "rebirthUpgradeNextEffect", "rebirthUpgradeCost", "buyRebirthUpgrade", "buyMaxRebirthUpgrade",
-    "rebirthCoreLevel", "rebirthCoreEffect", "rebirthCoreNextEffect", "rebirthCoreCost", "buyRebirthCore", "buyMaxRebirthCore",
-    "treePrismBalance", "treeNodes", "treeLines", "nodePlaceholder", "nodeDetails", "selectedNodeIcon", "selectedNodeCategory",
-    "selectedNodeName", "selectedNodeDescription", "selectedNodeEffect", "selectedNodeCost", "selectedNodeStatus", "selectedNodeRequirement", "purchaseTreeNode",
-    "prestigeLevelLabel", "prestigeTierName", "prestigeRequirement", "prestigeProgressFill", "prestigeProgressText", "prestigeButton",
-    "prestigeRewardHeading", "prestigeRewardList", "totalPrestiges",
-    "researchInsightBalance", "researchLines", "researchNodes", "researchPlaceholder", "researchDetails", "selectedResearchIcon",
-    "selectedResearchCategory", "selectedResearchName", "selectedResearchDescription", "selectedResearchEffect", "selectedResearchCost",
-    "selectedResearchStatus", "selectedResearchRequirement", "purchaseResearchNode",
-    "windAmount", "windStored", "windStorageCap", "windStorageFill", "windProductionRate", "windCollectAmount", "collectWindButton", "windAutoStatus",
-    "windTurbineLevel", "windTurbineEffect", "windTurbineNextEffect", "windTurbineCost", "buyWindTurbine", "buyMaxWindTurbine",
-    "ownedRuneCount", "totalRuneCount", "runeRollCost", "runeCooldownText", "runeBulkLabel", "rollRuneButton", "autoRuneButton",
-    "runePityFill", "runePityText", "runeLuckText", "runeSpeedText", "runeBulkText", "runeLastResult", "runeGrid",
-    "settingsButton", "settingsModal", "closeSettingsButton", "saveNowButton", "exportSaveButton", "importSaveButton", "resetSaveButton",
-    "saveTextarea", "saveTextareaActions", "confirmImportButton", "cancelSaveTextButton",
-    "developerStatus", "developerLogin", "developerPasscode", "unlockDeveloperButton", "developerTools",
-    "developerResourceSelect", "developerResourceAmount", "developerAddResource", "developerSetResource",
-    "developerUpgradeSelect", "developerUpgradeAmount", "developerAddUpgrade", "developerSetUpgrade",
-    "developerUnlockTree", "developerResetTree", "developerUnlockPrestige", "developerUnlockResearch", "developerGrantRunes",
-    "developerOfflineHours", "developerSimulateOffline",
-    "offlineModal", "closeOfflineButton", "offlineContinueButton", "offlineElapsedText", "offlineAppliedText",
-    "offlineEfficiencyText", "offlinePowerGain", "offlinePrismGain", "offlineLimitNote", "offlineChart", "toast"
-  ];
-  for (const id of ids) elements[id] = document.getElementById(id);
-}
+let state = defaultState();
+let activePage = "power";
+let selectedPrismNodeId = null;
+let selectedResearchNodeId = null;
+let autosaveTimer = 0;
+let automationTimer = 0;
+let autoRebirthTimer = 0;
+let lastLoopTimestamp = Date.now();
+let toastTimer = null;
+let pendingOfflineReport = null;
+const elements = {};
 
-/* ------------------------------ Formatting ------------------------------ */
+/* -------------------------------- Utilities -------------------------------- */
 
-function formatExponent(exponent) {
-  const absolute = Math.abs(exponent);
-  const sign = exponent < 0 ? "-" : "";
-  if (absolute < 1_000) return `${sign}${Math.floor(absolute).toLocaleString()}`;
-
-  const suffixes = ["K", "M", "B", "T", "Qa", "Qn"];
-  let tier = Math.floor(Math.log10(absolute) / 3);
-  if (tier < 1 || tier > suffixes.length) {
-    return `${sign}${absolute.toExponential(2).replace("+", "")}`;
-  }
-
-  let scaled = absolute / Math.pow(1_000, tier);
-  let decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
-  let rounded = Number(scaled.toFixed(decimals));
-
-  // Prevent output such as 1000K when rounding crosses a suffix boundary.
-  if (rounded >= 1_000) {
-    tier += 1;
-    if (tier > suffixes.length) {
-      return `${sign}${absolute.toExponential(2).replace("+", "")}`;
-    }
-    scaled = absolute / Math.pow(1_000, tier);
-    decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
-    rounded = Number(scaled.toFixed(decimals));
-  }
-
-  return `${sign}${rounded.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: decimals
-  })}${suffixes[tier - 1]}`;
-}
-
-function formatSmallNumber(value, maximumFractionDigits = 2) {
-  if (!Number.isFinite(value)) return "∞";
-  if (value < 0) return `-${formatSmallNumber(Math.abs(value), maximumFractionDigits)}`;
-  const suffixes = ["K", "M", "B", "T", "Qa", "Qn", "Sx", "Sp", "Oc", "No", "Dc"];
-  if (value < 1_000) {
-    const decimals = value < 10 ? maximumFractionDigits : 1;
-    const rounded = Number(value.toFixed(decimals));
-    if (rounded < 1_000) return rounded.toLocaleString(undefined, { maximumFractionDigits: decimals });
-  }
-  let tier = Math.max(1, Math.floor(Math.log10(value) / 3));
-  if (tier > suffixes.length) return value.toExponential(2).replace("+", "");
-  let scaled = value / Math.pow(1_000, tier);
-  let decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : maximumFractionDigits;
-  let rounded = Number(scaled.toFixed(decimals));
-  if (rounded >= 1_000) {
-    tier += 1;
-    if (tier > suffixes.length) return value.toExponential(2).replace("+", "");
-    scaled = value / Math.pow(1_000, tier);
-    decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : maximumFractionDigits;
-    rounded = Number(scaled.toFixed(decimals));
-  }
-  return `${rounded.toFixed(decimals)} ${suffixes[tier - 1]}`;
-}
-
-function formatNumber(value, maximumFractionDigits = 2) {
-  const huge = HugeNumber.from(value);
-  if (huge.isZero()) return "0";
-  if (huge.sign < 0) return `-${formatNumber(huge.absolute(), maximumFractionDigits)}`;
-  if (huge.exponent < 33) return formatSmallNumber(huge.toNumber(), maximumFractionDigits);
-  let displayMantissa = huge.mantissa;
-  let displayExponent = huge.exponent;
-  let decimals = displayMantissa >= 100 ? 0 : displayMantissa >= 10 ? 1 : maximumFractionDigits;
-  let roundedMantissa = Number(displayMantissa.toFixed(decimals));
-  if (roundedMantissa >= 10) {
-    roundedMantissa = 1;
-    displayExponent += 1;
-    decimals = maximumFractionDigits;
-  }
-  return `${roundedMantissa.toFixed(decimals)}e${formatExponent(displayExponent)}`;
-}
-
-function formatInteger(value) {
-  if (value instanceof HugeNumber || typeof value === "string") {
-    const huge = HugeNumber.from(value).floor();
-    if (huge.exponent < 15) return Math.floor(huge.toNumber()).toLocaleString();
-    return formatNumber(huge);
-  }
-  if (!Number.isFinite(value)) return "∞";
-  if (Math.abs(value) >= 1e15) return formatNumber(value);
-  return Math.floor(value).toLocaleString();
-}
-
-function formatDecimal(value, digits = 2) {
-  const numeric = Number(value) || 0;
-  if (Math.abs(numeric) >= 1e6) return formatSmallNumber(numeric, digits);
-  return numeric.toLocaleString(undefined, { maximumFractionDigits: digits });
-}
+function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
+function getByPath(path) { return path.reduce((object, key) => object[key], state); }
+function hasResearch(id) { return state.purchasedResearchNodes.includes(id); }
+function hasPrestige(tier = 1) { return state.prestigeLevel >= tier; }
+function treeLevel(id) { return Math.max(0, Math.floor(Number(state.treeLevels[id] || 0))); }
+function hasTreeNode(id) { return treeLevel(id) > 0; }
+function formatPercent(value) { return `${Math.round(value * 100)}%`; }
 
 function formatDuration(totalSeconds) {
-  if (!Number.isFinite(totalSeconds)) return "No limit";
-  const seconds = Math.max(0, Math.floor(totalSeconds));
-  const days = Math.floor(seconds / 86_400);
-  const hours = Math.floor((seconds % 86_400) / 3_600);
-  const minutes = Math.floor((seconds % 3_600) / 60);
-  const remainingSeconds = seconds % 60;
+  if (!Number.isFinite(totalSeconds)) return "Unlimited";
+  let seconds = Math.max(0, Math.floor(totalSeconds));
+  const days = Math.floor(seconds / 86400); seconds %= 86400;
+  const hours = Math.floor(seconds / 3600); seconds %= 3600;
+  const minutes = Math.floor(seconds / 60); seconds %= 60;
   const parts = [];
   if (days) parts.push(`${days}d`);
-  if (hours || days) parts.push(`${hours}h`);
-  if (minutes || hours || days) parts.push(`${minutes}m`);
-  if (!days || parts.length < 3) parts.push(`${remainingSeconds}s`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
   return parts.join(" ");
 }
 
-function pluralize(value, singular, plural = `${singular}s`) {
-  return Math.abs(Number(value) - 1) < Number.EPSILON ? singular : plural;
+function formatLevelNumber(value) {
+  const numeric = Math.max(0, Math.floor(Number(value) || 0));
+  if (numeric < 1000) return numeric.toLocaleString();
+  return formatCompactInteger(numeric);
 }
 
-function clamp(value, minimum, maximum) {
-  return Math.min(maximum, Math.max(minimum, value));
+function formatCompactInteger(value) {
+  const numeric = Math.abs(Number(value));
+  if (!Number.isFinite(numeric)) return "∞";
+  if (numeric < 1000) return Math.floor(numeric).toLocaleString();
+  const suffixes = ["K", "M", "B", "T", "Qa", "Qn"];
+  let tier = Math.floor(Math.log10(numeric) / 3);
+  let scaled = numeric / Math.pow(1000, tier);
+  let decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  let rounded = Number(scaled.toFixed(decimals));
+  if (rounded >= 1000) {
+    tier += 1;
+    scaled = rounded / 1000;
+    decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+    rounded = Number(scaled.toFixed(decimals));
+  }
+  if (tier <= suffixes.length) return `${rounded.toFixed(decimals)}${suffixes[tier - 1]}`;
+  return numeric.toExponential(2).replace("+", "");
 }
 
-function getHugeProgressPercent(currentValue, requirementValue) {
-  const current = HN(currentValue);
-  const requirement = HN(requirementValue);
-  if (current.greaterThanOrEqual(requirement)) return 100;
-  if (current.isZero()) return 0;
-  const requirementLog = requirement.log10();
-  if (requirementLog <= 0) return clamp(current.divide(requirement).toNumber() * 100, 0, 100);
-  return clamp((current.log10() / requirementLog) * 100, 0, 99.99);
+function formatHuge(value, digits = 2) {
+  const number = H(value);
+  if (number.isZero()) return "0";
+
+  const notation = state.notation || "mixed";
+  if (number.e < 3) {
+    return number.toNumber().toLocaleString(undefined, {
+      maximumFractionDigits: number.e < 1 ? digits : 1
+    });
+  }
+
+  const suffixes = ["K", "M", "B", "T", "Qa", "Qn", "Sx", "Sp", "Oc", "No", "Dc"];
+  if (notation !== "scientific" && number.e < suffixes.length * 3 + 3) {
+    let tier = Math.floor(number.e / 3);
+    let scaled = number.m * Math.pow(10, number.e - tier * 3);
+    let decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+    let rounded = Number(scaled.toFixed(decimals));
+    if (rounded >= 1000) {
+      tier += 1;
+      scaled = rounded / 1000;
+      decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+      rounded = Number(scaled.toFixed(decimals));
+    }
+    if (tier <= suffixes.length) return `${rounded.toFixed(decimals)} ${suffixes[tier - 1]}`;
+  }
+
+  let mantissa = Number(number.m.toFixed(digits));
+  let exponent = number.e;
+  if (mantissa >= 10) {
+    mantissa /= 10;
+    exponent += 1;
+  }
+  const exponentText = Math.abs(exponent) >= 1000 ? formatCompactInteger(exponent) : String(exponent);
+  return `${mantissa.toFixed(digits)}e${exponentText}`;
 }
 
-function currencyName(field, amount = 2) {
-  if (field === "prisms") return pluralize(amount, "Prism");
-  if (field === "wind") return "Wind";
-  if (field === "insight") return "Insight";
-  if (field === "power") return "Power";
-  return "RP";
+function showToast(message) {
+  clearTimeout(toastTimer);
+  elements.toast.textContent = message;
+  elements.toast.classList.add("visible");
+  toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 2100);
 }
 
-/* ------------------------------- Helpers -------------------------------- */
-
-function getTreeLevel(nodeId) {
-  return Math.max(0, Math.floor(Number(state.treeLevels[nodeId]) || 0));
+function currencyName(key) {
+  return { power: "Power", prisms: "Prisms", rebirthPoints: "Rebirth Points", insight: "Insight", wind: "Wind", windStorage: "Wind Storage" }[key] || key;
 }
 
-function hasTreeNode(nodeId) {
-  return getTreeLevel(nodeId) > 0;
+function getCurrency(key) { return H(state[key]); }
+function setCurrency(key, value) { state[key] = H(value).max(0); }
+function addCurrency(key, value) { state[key] = getCurrency(key).add(value); }
+function spendCurrency(key, value) {
+  const cost = H(value);
+  if (!getCurrency(key).gte(cost)) return false;
+  state[key] = getCurrency(key).sub(cost);
+  return true;
 }
 
-function getResearchLevel(nodeId) {
-  return Math.max(0, Math.floor(Number(state.researchLevels[nodeId]) || 0));
+/* --------------------------------- Effects --------------------------------- */
+
+function aggregateResearchEffects() {
+  const effects = {};
+  for (const nodeId of state.purchasedResearchNodes) {
+    const nodeEffects = RESEARCH_NODES[nodeId]?.effects || {};
+    for (const [key, value] of Object.entries(nodeEffects)) {
+      if (typeof value === "boolean") effects[key] = effects[key] || value;
+      else if (key.endsWith("Multiplier")) effects[key] = (effects[key] || 1) * value;
+      else effects[key] = (effects[key] || 0) + value;
+    }
+  }
+  return effects;
 }
 
-function hasResearchNode(nodeId) {
-  return getResearchLevel(nodeId) > 0;
+function getResearchFlag(flag) { return Boolean(aggregateResearchEffects()[flag]); }
+function getResearchSum(key) { return Number(aggregateResearchEffects()[key] || 0); }
+function getResearchProduct(key) { return Number(aggregateResearchEffects()[key] || 1); }
+
+function getPrismTreeProduct(perLevelKey, flatKey = null) {
+  let result = 1;
+  for (const node of Object.values(PRISM_TREE_NODES)) {
+    const level = treeLevel(node.id);
+    if (!level) continue;
+    if (node.effects[perLevelKey] !== undefined) result *= Math.pow(node.effects[perLevelKey], level);
+    if (flatKey && node.effects[flatKey] !== undefined) result *= node.effects[flatKey];
+  }
+  return result;
 }
 
-function getClaimedPrestigeTiers(prestigeLevel = state.prestigeLevel) {
-  return Object.values(PRESTIGE_TIERS)
-    .filter(config => config.id <= prestigeLevel)
-    .sort((left, right) => left.id - right.id);
+function getPrismTreeSum(perLevelKey, flatKey = null) {
+  let result = 0;
+  for (const node of Object.values(PRISM_TREE_NODES)) {
+    const level = treeLevel(node.id);
+    if (!level) continue;
+    if (node.effects[perLevelKey] !== undefined) result += node.effects[perLevelKey] * level;
+    if (flatKey && node.effects[flatKey] !== undefined) result += node.effects[flatKey];
+  }
+  return result;
 }
 
-function hasPrestigeUnlock(unlockName, prestigeLevel = state.prestigeLevel) {
-  return getClaimedPrestigeTiers(prestigeLevel)
-    .some(config => config.effects?.unlocks?.includes(unlockName));
+function getRuneData(id) {
+  const entry = state.ownedRunes[id];
+  if (!entry) return { level: 0, exp: 0 };
+  return { level: Math.max(0, Math.floor(Number(entry.level) || 0)), exp: Math.max(0, Math.floor(Number(entry.exp) || 0)) };
 }
 
-function getPrestigeProduct(effectName, prestigeLevel = state.prestigeLevel) {
-  return getClaimedPrestigeTiers(prestigeLevel).reduce((product, config) => {
-    const value = Number(config.effects?.[effectName]);
-    return Number.isFinite(value) && value > 0 ? product * value : product;
-  }, 1);
+function getRuneScaledStrength(runeData) {
+  return Math.pow(runeData.level, 0.75);
 }
 
-function getPrestigeSum(effectName, prestigeLevel = state.prestigeLevel) {
-  return getClaimedPrestigeTiers(prestigeLevel).reduce((sum, config) => {
-    const value = Number(config.effects?.[effectName]);
-    return Number.isFinite(value) ? sum + value : sum;
-  }, 0);
+function getRuneMultiplier(effectType) {
+  let result = 1;
+  for (const runeConfig of Object.values(RUNES)) {
+    const data = getRuneData(runeConfig.id);
+    if (data.level <= 0) continue;
+    const scale = getRuneScaledStrength(data);
+    if (runeConfig.effectType === effectType) result *= 1 + runeConfig.strength * scale;
+    if (runeConfig.effectType === "allCore" && ["power", "rebirth", "prisms", "wind", "insight"].includes(effectType)) {
+      result *= 1 + runeConfig.strength * scale;
+    }
+  }
+  return result;
 }
 
-function isPrestigeUnlocked() {
-  return state.prestigeLevel > 0;
-}
-
-function getTreeNumberProduct(effectName) {
-  return Object.values(TREE_NODES).reduce((total, node) => {
-    const level = getTreeLevel(node.id);
-    if (level <= 0 || node.effect !== effectName) return total;
-    return total * Math.pow(node.value, level);
-  }, 1);
-}
-
-function getTreeBigProduct(effectName) {
-  return Object.values(TREE_NODES).reduce((total, node) => {
-    const level = getTreeLevel(node.id);
-    if (level <= 0 || node.effect !== effectName) return total;
-    return total.multiply(HugeNumber.pow(node.value, level));
-  }, HugeNumber.one());
-}
-
-function getTreeSum(effectName) {
-  return Object.values(TREE_NODES).reduce((total, node) => {
-    const level = getTreeLevel(node.id);
-    return level > 0 && node.effect === effectName ? total + node.value * level : total;
-  }, 0);
-}
-
-function getTreeMaximum(effectName, fallbackValue) {
-  return Object.values(TREE_NODES).reduce((maximum, node) => {
-    if (getTreeLevel(node.id) <= 0 || node.effect !== effectName) return maximum;
-    if (node.value === Infinity) return Infinity;
-    return Math.max(maximum, node.value);
-  }, fallbackValue);
-}
-
-function getResearchNumberProduct(effectName) {
-  return Object.values(RESEARCH_NODES).reduce((total, node) => {
-    if (!hasResearchNode(node.id) || node.effect !== effectName) return total;
-    return total * node.value;
-  }, 1);
-}
-
-function getResearchSum(effectName) {
-  return Object.values(RESEARCH_NODES).reduce((total, node) => {
-    if (!hasResearchNode(node.id) || node.effect !== effectName) return total;
-    return total + node.value;
-  }, 0);
-}
-
-function hasResearchEffect(effectName) {
-  return Object.values(RESEARCH_NODES).some(node => hasResearchNode(node.id) && node.effect === effectName);
-}
-
-function getOwnedRune(runeId) {
-  const owned = state.ownedRunes[runeId];
-  return owned && owned.level > 0 ? owned : null;
-}
-
-function getRuneScale(level) {
-  return Math.pow(Math.max(0, level), 0.6);
-}
-
-function getRuneEffectProduct(effectName) {
-  return Object.values(RUNE_DEFINITIONS).reduce((product, rune) => {
-    const owned = getOwnedRune(rune.id);
-    if (!owned || rune.effect !== effectName) return product;
-    return product * (1 + rune.base * getRuneScale(owned.level));
-  }, 1);
-}
-
-function getRuneEffectSum(effectName) {
-  return Object.values(RUNE_DEFINITIONS).reduce((sum, rune) => {
-    const owned = getOwnedRune(rune.id);
-    if (!owned || rune.effect !== effectName) return sum;
-    return sum + rune.base * getRuneScale(owned.level);
-  }, 0);
-}
-
-function getAllProductionRuneMultiplier() {
-  return getRuneEffectProduct("allProduction");
-}
-
-function getPowerResonatorCap() {
-  return BASE_RESONATOR_CAP + getPrestigeSum("resonatorCapAdd") + getResearchSum("resonatorCapAdd");
-}
-
-function getRebirthAmplifierCap() {
-  return BASE_AMPLIFIER_CAP + getPrestigeSum("amplifierCapAdd") + getResearchSum("amplifierCapAdd");
-}
-
-function getWindTurbineCap() {
-  return BASE_WIND_TURBINE_CAP + getTreeSum("windTurbineCapAdd");
-}
-
-function getUpgradeCap(levelField) {
-  const definition = UPGRADE_DEFINITIONS[levelField];
-  const cap = definition?.cap ? Number(definition.cap()) : Infinity;
-  return Number.isFinite(cap) ? Math.max(0, Math.floor(cap)) : Infinity;
-}
-
-function getUpgradeCost(levelField, level = state[levelField]) {
-  const definition = UPGRADE_DEFINITIONS[levelField];
-  const rawCost = HN(definition.baseCost).multiply(HugeNumber.pow(definition.growth, level));
-  return definition.rounded ? rawCost.ceil() : rawCost;
-}
-
-function getFluxBaseBonus() { return HN(state.powerUpgradeLevel); }
-function getRebirthCoreBaseBonus() { return HN(state.rebirthCoreLevel).multiply(2); }
-function getBasePowerPerSecond() { return HugeNumber.one().add(getFluxBaseBonus()).add(getRebirthCoreBaseBonus()); }
-function getPowerResonatorMultiplier() { return HugeNumber.pow(1.25, state.powerResonatorLevel); }
-function getRebirthPowerMultiplier() { return HugeNumber.pow(1.5, state.rebirthUpgradeLevel); }
-function getPrestigePowerMultiplier() { return HN(getPrestigeProduct("powerMultiplier")); }
-function getPrestigeRebirthMultiplier() { return HN(getPrestigeProduct("rebirthMultiplier")); }
-
-function getPowerPerSecond() {
-  return getBasePowerPerSecond()
-    .multiply(getPowerResonatorMultiplier())
-    .multiply(getRebirthPowerMultiplier())
-    .multiply(getTreeBigProduct("powerMultiplier"))
-    .multiply(getResearchNumberProduct("powerMultiplier"))
-    .multiply(getPrestigePowerMultiplier())
-    .multiply(getRuneEffectProduct("powerMultiplier"))
-    .multiply(getAllProductionRuneMultiplier());
-}
-
-function getPrismInterval() {
-  return Math.max(3, BASE_PRISM_INTERVAL * getTreeNumberProduct("prismIntervalMultiplier"));
-}
-
-function getPrismGainPerCycle() {
-  return Math.max(1,
-    getTreeNumberProduct("prismGainMultiplier")
-    * getResearchNumberProduct("prismGainMultiplier")
-    * getRuneEffectProduct("prismMultiplier")
-    * getAllProductionRuneMultiplier()
-  );
-}
-
-function getOfflineEfficiency() {
-  const treeValue = getTreeMaximum("offlineEfficiency", BASE_OFFLINE_EFFICIENCY);
-  const researchBonus = getResearchSum("offlineEfficiencyBonus");
-  const runeBonus = Math.min(0.03, getRuneEffectSum("offlineEfficiency"));
-  return clamp(treeValue + researchBonus + runeBonus, 0, 1);
-}
-
-function getOfflineLimitSeconds() {
-  return getTreeMaximum("offlineLimit", BASE_OFFLINE_LIMIT_SECONDS);
-}
-
-function getRebirthGain() {
-  if (state.power.lessThan(BASE_REBIRTH_REQUIREMENT)) return HugeNumber.zero();
-  return state.power.divide(BASE_REBIRTH_REQUIREMENT).floor()
-    .multiply(getPrestigeRebirthMultiplier())
-    .multiply(getRuneEffectProduct("rebirthMultiplier"))
-    .multiply(getAllProductionRuneMultiplier())
-    .floor();
-}
-
-function getPrestigeCost(prestigeCount = state.totalPrestiges) {
-  return HN(PRESTIGE_BASE_COST).multiply(HN(PRESTIGE_COST_GROWTH).power(prestigeCount));
-}
-
-function getCurrentPrestigeTier() {
-  return state.prestigeLevel + 1;
-}
-
-function getInsightPerSecond() {
-  if (!hasPrestigeUnlock("research")) return 0;
-  return BASE_INSIGHT_RATE
-    * getTreeNumberProduct("insightMultiplier")
-    * getRuneEffectProduct("insightMultiplier")
-    * getAllProductionRuneMultiplier();
-}
-
-function getWindOutputPerSecond() {
-  if (!hasPrestigeUnlock("wind")) return 0;
-  return state.windTurbineLevel * BASE_WIND_PER_TURBINE
-    * getTreeNumberProduct("windOutputMultiplier")
-    * getRuneEffectProduct("windMultiplier")
-    * getAllProductionRuneMultiplier();
-}
-
-function getWindStorageCap() {
-  return BASE_WIND_STORAGE_CAP * getTreeNumberProduct("windStorageMultiplier");
-}
-
-function getWindCollectAmount() {
-  return BASE_WIND_COLLECT_AMOUNT * getTreeNumberProduct("windCollectMultiplier");
-}
-
-function getRuneLuckPoints() {
-  return getRuneEffectSum("runeLuck");
+function getRuneLuckRaw() {
+  let raw = getResearchSum("runeLuck");
+  const runeData = getRuneData("fortuneCircuit");
+  if (runeData.level > 0) raw += RUNES.fortuneCircuit.strength * getRuneScaledStrength(runeData);
+  return raw;
 }
 
 function getRuneLuckMultiplier() {
-  return 1 + 4 * (1 - Math.exp(-getRuneLuckPoints() / 20));
-}
-
-function getRuneCooldownSeconds() {
-  const points = getRuneEffectSum("runeSpeed");
-  return Math.max(0.6, BASE_RUNE_COOLDOWN / (1 + points / 10));
+  const raw = Math.max(0, getRuneLuckRaw());
+  return 1 + 9 * (1 - Math.exp(-raw / 8));
 }
 
 function getRuneBulk() {
-  const points = getRuneEffectSum("runeBulk");
-  const thresholds = [2, 5, 9, 14];
-  return 1 + thresholds.filter(threshold => points >= threshold).length;
+  let bulk = 1 + getResearchSum("runeBulk");
+  const parallel = getRuneData("parallelScript");
+  if (parallel.level >= 25) bulk += 1;
+  if (parallel.level >= 75) bulk += 1;
+  return clamp(Math.floor(bulk), 1, 5);
 }
 
-function getRuneCostPerUnit() {
-  return Math.max(1, Math.ceil(BASE_RUNE_COST * getResearchNumberProduct("runeCostMultiplier")));
-}
-
-function getRuneBatchCost() {
-  return getRuneCostPerUnit() * getRuneBulk();
+function getRuneCooldown() {
+  let cooldown = BASE_RUNE_COOLDOWN * getResearchProduct("runeSpeedMultiplier");
+  const speedRune = getRuneData("velocityScript");
+  if (speedRune.level > 0) cooldown *= Math.max(0.45, 1 - RUNES.velocityScript.strength * getRuneScaledStrength(speedRune));
+  return Math.max(MIN_RUNE_COOLDOWN, cooldown);
 }
 
 function getRunePityThreshold() {
-  return Math.max(30, BASE_RUNE_PITY - getResearchSum("pityReduction"));
+  return Math.max(25, BASE_RUNE_PITY - getResearchSum("pityReduction"));
 }
 
-function getRuneExpRequirement(level) {
-  if (level >= MAX_RUNE_LEVEL) return Infinity;
-  return Math.ceil(4 * Math.pow(level, 1.5) * Math.pow(1.35, Math.max(0, level - 1)));
+function getRuneRollCost() {
+  const bulk = getRuneBulk();
+  const bulkFactor = 1 + (bulk - 1) * 0.6;
+  return H(5 * bulkFactor * getResearchProduct("runeCostMultiplier"));
 }
 
-function getTreeNodeCurrency(node) {
-  return node.currency || "prisms";
+function getResonatorCap() {
+  return 50 + (hasPrestige(1) ? 10 : 0) + getResearchSum("resonatorCap");
 }
 
-function getTreeCurrencyBalance(node) {
-  return state[getTreeNodeCurrency(node)];
+function getAmplifierCap() {
+  return 35 + (hasPrestige(1) ? 10 : 0) + getResearchSum("amplifierCap");
 }
 
-function getTreeNodeCost(node) {
-  const level = getTreeLevel(node.id);
-  return Math.max(1, Math.ceil(node.cost * Math.pow(node.costGrowth || 1, level)));
+function getPowerCostRequirementMultiplier() {
+  const reduction = Math.min(0.75, getPrismTreeSum("powerCostReductionPerLevel"));
+  return Math.max(0.25, 1 - reduction);
 }
 
-function treeNodeGatesMet(node) {
-  if (node.prestigeGate && state.prestigeLevel < node.prestigeGate) return false;
-  if (node.researchGate && !hasResearchNode(node.researchGate)) return false;
-  return true;
+function getUpgradeLevel(id) {
+  const config = UPGRADE_CONFIG[id];
+  return config.group === "power" ? state.powerUpgrades[id] : state.rebirthUpgrades[id];
 }
 
-function areTreePrerequisitesMet(node) {
-  return node.prerequisites.every(hasTreeNode);
+function setUpgradeLevel(id, level) {
+  const config = UPGRADE_CONFIG[id];
+  const clean = clamp(Math.floor(Number(level) || 0), 0, MAX_SAFE_LEVEL);
+  if (config.group === "power") state.powerUpgrades[id] = clean;
+  else state.rebirthUpgrades[id] = clean;
 }
 
-function isTreeNodeVisible(node) {
-  if (!treeNodeGatesMet(node)) return false;
-  return node.id === "originLens" || hasTreeNode(node.id) || areTreePrerequisitesMet(node);
+function getUpgradeCurrency(id) { return UPGRADE_CONFIG[id].group === "power" ? "power" : "rebirthPoints"; }
+function getUpgradeCost(id, level = getUpgradeLevel(id)) {
+  const config = UPGRADE_CONFIG[id];
+  let cost = config.baseCost.mul(H(config.growth).pow(level));
+  if (config.group === "power") cost = cost.mul(getPowerCostRequirementMultiplier());
+  return cost;
 }
 
-function getTreeNodeState(node) {
-  if (!treeNodeGatesMet(node) || !areTreePrerequisitesMet(node)) return "locked";
-  const level = getTreeLevel(node.id);
+function getUpgradeTotalCost(id, count) {
+  if (count <= 0) return H(0);
+  const config = UPGRADE_CONFIG[id];
+  const firstCost = getUpgradeCost(id);
+  const numerator = H(config.growth).pow(count).sub(1);
+  return firstCost.mul(numerator).div(config.growth - 1);
+}
+
+function powerUpgradeDoesNotSpend() { return getResearchFlag("freePowerUpgrades"); }
+
+function estimateAffordableCount(id) {
+  const config = UPGRADE_CONFIG[id];
+  const currentLevel = getUpgradeLevel(id);
+  const cap = config.cap();
+  const remainingCap = Number.isFinite(cap) ? Math.max(0, cap - currentLevel) : MAX_SAFE_LEVEL;
+  if (remainingCap <= 0) return 0;
+
+  const currencyKey = getUpgradeCurrency(id);
+  const currency = getCurrency(currencyKey);
+  const firstCost = getUpgradeCost(id, currentLevel);
+  if (!currency.gte(firstCost)) return 0;
+
+  let estimated;
+  if (currencyKey === "power" && powerUpgradeDoesNotSpend()) {
+    estimated = Math.floor((currency.log10() - config.baseCost.mul(getPowerCostRequirementMultiplier()).log10()) / Math.log10(config.growth)) - currentLevel + 1;
+  } else {
+    const term = currency.mul(config.growth - 1).div(firstCost).add(1);
+    estimated = Math.floor(term.log10() / Math.log10(config.growth));
+  }
+
+  estimated = clamp(estimated, 1, remainingCap);
+
+  if (!(currencyKey === "power" && powerUpgradeDoesNotSpend())) {
+    while (estimated > 0 && getUpgradeTotalCost(id, estimated).gt(currency)) estimated -= 1;
+    while (estimated < remainingCap && getUpgradeTotalCost(id, estimated + 1).lte(currency)) estimated += 1;
+  } else {
+    while (estimated > 0 && getUpgradeCost(id, currentLevel + estimated - 1).gt(currency)) estimated -= 1;
+    while (estimated < remainingCap && getUpgradeCost(id, currentLevel + estimated).lte(currency)) estimated += 1;
+  }
+
+  return estimated;
+}
+
+function buyRepeatableUpgrade(id, requestedCount = 1, silent = false) {
+  const config = UPGRADE_CONFIG[id];
+  if (!config) return 0;
+  const available = estimateAffordableCount(id);
+  const count = requestedCount === Infinity ? available : Math.min(available, Math.max(0, Math.floor(requestedCount)));
+  if (count <= 0) return 0;
+
+  const currencyKey = getUpgradeCurrency(id);
+  if (!(currencyKey === "power" && powerUpgradeDoesNotSpend())) {
+    state[currencyKey] = getCurrency(currencyKey).sub(getUpgradeTotalCost(id, count));
+  }
+  setUpgradeLevel(id, getUpgradeLevel(id) + count);
+  if (!silent) showToast(`${config.name} +${formatLevelNumber(count)}`);
+  return count;
+}
+
+function getBasePowerPerSecond() {
+  return H(1 + state.powerUpgrades.flux + state.rebirthUpgrades.core * 2);
+}
+
+function getPowerPerSecond() {
+  let rate = getBasePowerPerSecond();
+  rate = rate.mul(H(1.25).pow(state.powerUpgrades.resonator));
+  rate = rate.mul(H(1.5).pow(state.rebirthUpgrades.amplifier));
+  rate = rate.mul(getPrismTreeProduct("powerMultiplierPerLevel", "powerMultiplier"));
+  rate = rate.mul(1 + getResearchSum("powerPercent"));
+  rate = rate.mul(getRuneMultiplier("power"));
+  if (hasPrestige(1)) rate = rate.mul(2);
+  return rate;
+}
+
+function getPrismInterval() {
+  const reduction = getPrismTreeSum("prismIntervalPerLevel", "prismInterval");
+  return Math.max(5, BASE_PRISM_INTERVAL - reduction);
+}
+
+function getPrismGainPerCycle() {
+  let gain = H(1);
+  gain = gain.mul(getPrismTreeProduct("prismGainPerLevel"));
+  gain = gain.mul(1 + getResearchSum("prismPercent"));
+  gain = gain.mul(getRuneMultiplier("prism"));
+  return gain;
+}
+
+function getRebirthMultiplier() {
+  let multiplier = H(getPrismTreeProduct("rebirthMultiplierPerLevel", "rebirthMultiplier"));
+  multiplier = multiplier.mul(getRuneMultiplier("rebirth"));
+  if (hasPrestige(1)) multiplier = multiplier.mul(1.5);
+  return multiplier;
+}
+
+function getCurrentRebirthBaseUnits() {
+  return state.power.div(BASE_REBIRTH_REQUIREMENT).floor();
+}
+
+function getRebirthGain() {
+  const currentBase = getCurrentRebirthBaseUnits();
+  const claimableBase = getResearchFlag("preservePowerOnRebirth") ? currentBase.sub(state.rebirthClaimedBase) : currentBase;
+  if (claimableBase.lte(0)) return H(0);
+  return claimableBase.mul(getRebirthMultiplier()).floor();
+}
+
+function getOfflineEfficiency() {
+  let efficiency = BASE_OFFLINE_EFFICIENCY;
+  for (const node of Object.values(PRISM_TREE_NODES)) {
+    if (hasTreeNode(node.id) && node.effects.offlineEfficiencySet !== undefined) efficiency = Math.max(efficiency, node.effects.offlineEfficiencySet);
+  }
+  efficiency += getResearchSum("offlineEfficiency");
+  const archiveRune = getRuneData("eonHeart");
+  if (archiveRune.level > 0) efficiency += Math.min(0.02, 0.0005 * getRuneScaledStrength(archiveRune));
+  return Math.min(1, efficiency);
+}
+
+function getOfflineLimit() {
+  let limit = BASE_OFFLINE_LIMIT_SECONDS;
+  for (const node of Object.values(PRISM_TREE_NODES)) {
+    if (!hasTreeNode(node.id)) continue;
+    if (node.effects.offlineUnlimited) return Infinity;
+    if (node.effects.offlineLimitSet !== undefined) limit = Math.max(limit, node.effects.offlineLimitSet);
+  }
+  return limit;
+}
+
+function getInsightRate() {
+  if (!hasPrestige(1)) return H(0);
+  let rate = H(BASE_INSIGHT_RATE);
+  rate = rate.mul(getResearchProduct("insightMultiplier"));
+  rate = rate.mul(getPrismTreeProduct("insightMultiplierPerLevel"));
+  rate = rate.mul(getRuneMultiplier("insight"));
+  return rate;
+}
+
+function getWindTurbineCost() { return H("1e6").mul(H(2.4).pow(state.windTurbines)); }
+function getWindRate() {
+  if (!hasPrestige(1) || state.windTurbines <= 0) return H(0);
+  let rate = H(0.25 * state.windTurbines);
+  rate = rate.mul(getPrismTreeProduct("windMultiplierPerLevel"));
+  rate = rate.mul(getRuneMultiplier("wind"));
+  return rate;
+}
+
+function getWindCapacity() {
+  return H(100).mul(getPrismTreeProduct("windCapacityPerLevel"));
+}
+
+function getWindCollectAmount() {
+  return H(25 + getPrismTreeSum("windCollectPerLevel"));
+}
+
+/* ------------------------------- Tree logic -------------------------------- */
+
+function isPrismNodeUnlockedBySystem(node) {
+  if (!node.unlock) return true;
+  if (node.unlock === "prestige1") return hasPrestige(1);
+  if (node.unlock === "wind") return hasPrestige(1) && hasTreeNode("windGate");
+  if (node.unlock === "researchBranch") return getResearchFlag("researchBranch");
+  return false;
+}
+
+function isPrismNodeVisible(node) {
+  if (!isPrismNodeUnlockedBySystem(node)) return false;
+  if (node.id === "originLens" || treeLevel(node.id) > 0) return true;
+  return node.prerequisites.every(id => treeLevel(id) > 0);
+}
+
+function getPrismNodeCost(node, level = treeLevel(node.id)) {
+  return node.baseCost.mul(H(node.growth).pow(level));
+}
+
+function getPrismNodeState(node) {
+  const level = treeLevel(node.id);
   if (level >= node.maxLevel) return "maxed";
-  if (level > 0) return "owned";
-  return "available";
+  if (node.prerequisites.every(id => treeLevel(id) > 0)) return level > 0 ? "purchased" : "available";
+  return "locked";
 }
 
-function getTreeNodeEffectText(node, level = getTreeLevel(node.id)) {
-  const nextLevel = Math.min(node.maxLevel, level + 1);
-  const repeatable = node.maxLevel > 1;
-  if (node.effect === "powerMultiplier") {
-    const current = Math.pow(node.value, level);
-    const next = Math.pow(node.value, nextLevel);
-    return repeatable ? `Current ×${formatSmallNumber(current)} · Next ×${formatSmallNumber(next)}` : `×${formatSmallNumber(node.value)} total Power production`;
-  }
-  if (node.effect === "prismIntervalMultiplier") {
-    return repeatable
-      ? `This node: ×${formatSmallNumber(Math.pow(node.value, level), 3)} → ×${formatSmallNumber(Math.pow(node.value, nextLevel), 3)} interval`
-      : `${Math.round((1 - node.value) * 100)}% faster Prism cycles`;
-  }
-  if (node.effect === "prismGainMultiplier") {
-    return repeatable
-      ? `Current ×${formatSmallNumber(Math.pow(node.value, level))} · Next ×${formatSmallNumber(Math.pow(node.value, nextLevel))} Prism gain`
-      : `×${formatSmallNumber(node.value)} Prism gain`;
-  }
-  if (node.effect === "offlineEfficiency") return `Offline efficiency becomes ${Math.round(node.value * 100)}%`;
-  if (node.effect === "offlineLimit") return Number.isFinite(node.value) ? `Offline limit becomes ${formatDuration(node.value)}` : "Offline progression has no time limit";
-  if (node.effect === "windOutputMultiplier") return repeatable ? `Wind output ×${formatSmallNumber(Math.pow(node.value, level))} → ×${formatSmallNumber(Math.pow(node.value, nextLevel))}` : `×${node.value} Wind output`;
-  if (node.effect === "windStorageMultiplier") return `Storage ×${formatSmallNumber(Math.pow(node.value, level))} → ×${formatSmallNumber(Math.pow(node.value, nextLevel))}`;
-  if (node.effect === "windCollectMultiplier") return `Collect ×${formatSmallNumber(Math.pow(node.value, level))} → ×${formatSmallNumber(Math.pow(node.value, nextLevel))}`;
-  if (node.effect === "windTurbineCapAdd") return `Turbine cap +${node.value * level} → +${node.value * nextLevel}`;
-  if (node.effect === "insightMultiplier") return `×${node.value} Insight generation`;
-  return "Permanent network effect";
-}
-
-function areResearchPrerequisitesMet(node) {
-  return node.prerequisites.every(hasResearchNode);
+function purchasePrismNode(nodeId) {
+  const node = PRISM_TREE_NODES[nodeId];
+  if (!node || !isPrismNodeVisible(node)) return;
+  const level = treeLevel(node.id);
+  if (level >= node.maxLevel) return;
+  if (!node.prerequisites.every(id => treeLevel(id) > 0)) return;
+  const cost = getPrismNodeCost(node, level);
+  if (!spendCurrency(node.currency, cost)) return;
+  state.treeLevels[node.id] = level + 1;
+  showToast(`${node.name} ${node.maxLevel === 1 ? "purchased" : `Lv ${level + 1}`}`);
+  saveGame(false);
+  renderAll();
 }
 
 function isResearchNodeVisible(node) {
-  return hasPrestigeUnlock("research") && (node.id === "firstObservation" || hasResearchNode(node.id) || areResearchPrerequisitesMet(node));
+  if (state.purchasedResearchNodes.includes(node.id)) return true;
+  if (node.id === "firstObservation") return true;
+  return node.prerequisites.every(id => state.purchasedResearchNodes.includes(id));
 }
 
 function getResearchNodeState(node) {
-  if (!areResearchPrerequisitesMet(node)) return "locked";
-  return hasResearchNode(node.id) ? "maxed" : "available";
+  if (state.purchasedResearchNodes.includes(node.id)) return "purchased";
+  if (!node.prerequisites.every(id => state.purchasedResearchNodes.includes(id))) return "locked";
+  if (node.exclusiveGroup) {
+    const conflict = state.purchasedResearchNodes.some(id => RESEARCH_NODES[id]?.exclusiveGroup === node.exclusiveGroup);
+    if (conflict) return "choice-blocked";
+  }
+  return "available";
 }
 
-/* ------------------------------ Game Systems ----------------------------- */
-
-function canAfford(currency, cost) {
-  if (currency instanceof HugeNumber || cost instanceof HugeNumber || typeof currency === "string" || typeof cost === "string") {
-    return HN(currency).greaterThanOrEqual(cost);
-  }
-  return Number.isFinite(currency) && Number.isFinite(cost) && currency + 1e-9 >= cost;
+function purchaseResearchNode(nodeId) {
+  const node = RESEARCH_NODES[nodeId];
+  if (!node || getResearchNodeState(node) !== "available") return;
+  if (!spendCurrency("insight", node.cost)) return;
+  state.purchasedResearchNodes.push(node.id);
+  showToast(`${node.name} researched`);
+  saveGame(false);
+  renderAll();
 }
 
-function getGeometricTotalCost(levelField, startLevel, count) {
-  if (count <= 0) return HugeNumber.zero();
-  const definition = UPGRADE_DEFINITIONS[levelField];
-  if (count <= 2_000) {
-    let total = HugeNumber.zero();
-    for (let offset = 0; offset < count; offset += 1) total = total.add(getUpgradeCost(levelField, startLevel + offset));
-    return total;
-  }
-  const firstCost = HN(definition.baseCost).multiply(HugeNumber.pow(definition.growth, startLevel));
-  const growthPower = HugeNumber.pow(definition.growth, count);
-  let total = firstCost.multiply(growthPower.subtract(1)).divide(definition.growth - 1);
-  if (definition.rounded) total = total.add(count);
-  return total;
-}
+/* ------------------------------- Core actions ------------------------------ */
 
-function estimateAffordableCount(levelField, currency) {
-  const definition = UPGRADE_DEFINITIONS[levelField];
-  const currentLevel = state[levelField];
-  const cap = getUpgradeCap(levelField);
-  const remainingLevels = Number.isFinite(cap) ? Math.max(0, cap - currentLevel) : Number.MAX_SAFE_INTEGER;
-  if (remainingLevels <= 0) return 0;
-  const firstCost = getUpgradeCost(levelField, currentLevel);
-  if (!canAfford(currency, firstCost)) return 0;
-
-  const ratio = HN(currency).multiply(definition.growth - 1).divide(firstCost);
-  const logOnePlusRatio = ratio.exponent > 14 ? ratio.log10() : Math.log10(1 + Math.max(0, ratio.toNumber()));
-  let estimate = Math.max(1, Math.floor(logOnePlusRatio / Math.log10(definition.growth)));
-  estimate = Math.min(estimate + 2, remainingLevels, Number.MAX_SAFE_INTEGER);
-
-  let low = 0;
-  let high = estimate;
-  while (high < remainingLevels && canAfford(currency, getGeometricTotalCost(levelField, currentLevel, high))) {
-    low = high;
-    high = Math.min(remainingLevels, Math.max(high + 1, high * 2));
-    if (high === low) break;
-  }
-  while (low + 1 < high) {
-    const middle = low + Math.floor((high - low) / 2);
-    if (canAfford(currency, getGeometricTotalCost(levelField, currentLevel, middle))) low = middle;
-    else high = middle;
-  }
-  return canAfford(currency, getGeometricTotalCost(levelField, currentLevel, high)) ? high : low;
-}
-
-function buyRepeatableUpgrade(levelField, amount = 1, options = {}) {
-  const definition = UPGRADE_DEFINITIONS[levelField];
-  if (!definition) return 0;
-  const currentLevel = state[levelField];
-  const cap = getUpgradeCap(levelField);
-  const remaining = Number.isFinite(cap) ? Math.max(0, cap - currentLevel) : Number.MAX_SAFE_INTEGER;
-  if (remaining <= 0) return 0;
-
-  const currency = state[definition.currencyField];
-  let purchased = 0;
-  let totalCost = HugeNumber.zero();
-  if (amount === Infinity) {
-    purchased = Math.min(remaining, estimateAffordableCount(levelField, currency));
-    if (purchased > 0) totalCost = getGeometricTotalCost(levelField, currentLevel, purchased);
-  } else {
-    purchased = Math.min(remaining, Math.max(0, Math.floor(amount)));
-    totalCost = getGeometricTotalCost(levelField, currentLevel, purchased);
-    if (!canAfford(currency, totalCost)) purchased = 0;
-  }
-  if (purchased <= 0) return 0;
-
-  state[definition.currencyField] = HN(currency).subtract(totalCost).max(0);
-  state[levelField] += purchased;
-  if (!options.silent) showToast(`${definition.name} +${formatInteger(purchased)}`);
-  if (options.render !== false) renderAll();
-  return purchased;
-}
-
-function buyPowerUpgrade(amount = 1, options) { return buyRepeatableUpgrade("powerUpgradeLevel", amount, options); }
-function buyPowerResonator(amount = 1, options) { return buyRepeatableUpgrade("powerResonatorLevel", amount, options); }
-function buyRebirthUpgrade(amount = 1, options) { return buyRepeatableUpgrade("rebirthUpgradeLevel", amount, options); }
-function buyRebirthCore(amount = 1, options) { return buyRepeatableUpgrade("rebirthCoreLevel", amount, options); }
-function buyWindTurbine(amount = 1, options) { return buyRepeatableUpgrade("windTurbineLevel", amount, options); }
-
-function performRebirth(options = {}) {
+function performRebirth(silent = false) {
   const gain = getRebirthGain();
-  if (gain.isZero()) return false;
+  if (gain.lte(0)) return false;
+
+  const preservePower = getResearchFlag("preservePowerOnRebirth");
+  const currentBase = getCurrentRebirthBaseUnits();
   state.rebirthPoints = state.rebirthPoints.add(gain);
   state.totalRebirths += 1;
-  state.power = HugeNumber.zero();
-  state.powerUpgradeLevel = 0;
-  state.powerResonatorLevel = 0;
-  if (!options.silent) showToast(`Rebirth complete: +${formatInteger(gain)} RP`);
-  if (options.save !== false) saveGame(false);
-  if (options.render !== false) renderAll();
+  state.powerUpgrades.flux = 0;
+  state.powerUpgrades.resonator = 0;
+
+  if (preservePower) {
+    state.rebirthClaimedBase = currentBase;
+  } else {
+    state.power = H(0);
+    state.rebirthClaimedBase = H(0);
+  }
+
+  if (!silent) showToast(`Rebirth complete: +${formatHuge(gain)} RP`);
   return true;
 }
 
+function getPrestigeCost(tierIndex = state.totalPrestiges) {
+  const tier = PRESTIGE_TIERS[Math.min(tierIndex, PRESTIGE_TIERS.length - 1)];
+  return tier.baseCost.mul(tier.growth.pow(state.totalPrestiges));
+}
+
 function performPrestige() {
-  const tier = getCurrentPrestigeTier();
-  const config = PRESTIGE_TIERS[tier];
-  if (!config) return;
+  const tier = PRESTIGE_TIERS[state.prestigeLevel];
+  if (!tier) return;
   const cost = getPrestigeCost();
-  if (!canAfford(state.power, cost)) return;
-  if (!window.confirm(`Claim Prestige Tier ${tier}: ${config.name}? The listed Power and Rebirth systems will reset.`)) return;
+  if (!state.power.gte(cost)) return;
 
+  state.power = H(0);
+  state.powerUpgrades.flux = 0;
+  state.powerUpgrades.resonator = 0;
+  state.rebirthPoints = H(0);
+  state.rebirthUpgrades.amplifier = 0;
+  state.rebirthUpgrades.core = 0;
+  state.rebirthClaimedBase = H(0);
   state.totalPrestiges += 1;
-  state.prestigeLevel = Math.max(state.prestigeLevel, tier);
-  state.power = HugeNumber.zero();
-  state.powerUpgradeLevel = 0;
-  state.powerResonatorLevel = 0;
-  state.rebirthPoints = HugeNumber.zero();
-  state.rebirthUpgradeLevel = 0;
-  state.rebirthCoreLevel = 0;
-  const effects = config.effects || {};
-  if (effects.enableAutoPowerByDefault) state.autoPowerEnabled = true;
-  state.autoRebirthEnabled = false;
-  for (const cosmetic of effects.cosmetics || []) {
-    if (!state.unlockedCosmetics.includes(cosmetic)) state.unlockedCosmetics.push(cosmetic);
-  }
-  if (effects.defaultCosmetic && state.unlockedCosmetics.includes(effects.defaultCosmetic)) {
-    state.selectedCosmetic = effects.defaultCosmetic;
-  }
+  state.prestigeLevel += 1;
+  state.autoPowerEnabled = true;
 
+  showToast(`${tier.name} complete`);
   saveGame(false);
-  updateUnlockVisibility();
-  renderAll();
-  showToast(`Prestige Tier ${tier} claimed: ${config.name}`);
-}
-
-function purchaseSelectedTreeNode() {
-  const node = TREE_NODES[selectedTreeNodeId];
-  if (!node || !isTreeNodeVisible(node)) return;
-  const nodeState = getTreeNodeState(node);
-  if (!["available", "owned"].includes(nodeState)) return;
-  const cost = getTreeNodeCost(node);
-  const currencyField = getTreeNodeCurrency(node);
-  if (!canAfford(state[currencyField], cost)) return;
-
-  state[currencyField] = Math.max(0, state[currencyField] - cost);
-  state.treeLevels[node.id] = getTreeLevel(node.id) + 1;
-  resolvePrismGeneration(false);
-  showToast(`${node.name} ${node.maxLevel > 1 ? `level ${state.treeLevels[node.id]}` : "purchased"}`);
-  saveGame(false);
+  setActivePage("research");
   renderAll();
 }
 
-function purchaseSelectedResearchNode() {
-  const node = RESEARCH_NODES[selectedResearchNodeId];
-  if (!node || !isResearchNodeVisible(node) || getResearchNodeState(node) !== "available") return;
-  if (!canAfford(state.insight, node.cost)) return;
-  state.insight -= node.cost;
-  state.researchLevels[node.id] = 1;
-  state.purchasedResearchNodes = Object.keys(state.researchLevels).filter(id => getResearchLevel(id) > 0);
-  showToast(`${node.name} researched`);
-  saveGame(false);
-  updateUnlockVisibility();
+function buyWindTurbine() {
+  const cost = getWindTurbineCost();
+  if (!spendCurrency("power", cost)) return;
+  state.windTurbines += 1;
+  showToast("Wind Turbine purchased");
   renderAll();
 }
 
-function collectWind() {
-  if (!hasPrestigeUnlock("wind")) return;
-  const amount = Math.min(state.windStorage, getWindCollectAmount());
-  if (amount <= 0) return;
-  state.windStorage -= amount;
-  state.wind += amount;
-  showToast(`Collected ${formatDecimal(amount)} Wind`);
-  renderAll();
+function collectWind(silent = false) {
+  if (state.windStorage.lte(0)) return H(0);
+  const amount = state.windStorage.min(getWindCollectAmount());
+  state.windStorage = state.windStorage.sub(amount);
+  state.wind = state.wind.add(amount);
+  if (!silent) showToast(`Collected ${formatHuge(amount)} Wind`);
+  return amount;
 }
 
-function resolvePrismGeneration(showFeedback = false) {
-  const interval = getPrismInterval();
-  if (state.prismProgress < interval) return 0;
-  const cycles = Math.floor(state.prismProgress / interval);
-  const rawGenerated = cycles * getPrismGainPerCycle() + state.prismYieldRemainder;
-  const generated = Math.floor(rawGenerated + 1e-9);
-  state.prismYieldRemainder = Math.max(0, rawGenerated - generated);
-  state.prisms += generated;
-  state.prismProgress -= cycles * interval;
-  if (showFeedback && generated > 0) showToast(`+${formatInteger(generated)} ${pluralize(generated, "Prism")}`);
-  return generated;
+/* ---------------------------------- Runes ---------------------------------- */
+
+function runeExpRequired(level) {
+  if (level <= 0) return 1;
+  return Math.ceil(4 * Math.pow(1.55, level) * Math.pow(level + 1, 1.35));
 }
 
-function addWindProduction(effectiveSeconds) {
-  const generated = getWindOutputPerSecond() * effectiveSeconds;
-  if (generated <= 0) return { generated: 0, stored: 0, wasted: 0 };
-  if (hasResearchEffect("windAutoCollect")) {
-    state.wind += generated;
-    return { generated, stored: 0, wasted: 0 };
+function randomLog10Unit() {
+  if (globalThis.crypto?.getRandomValues) {
+    const words = new Uint32Array(8);
+    crypto.getRandomValues(words);
+    let integer = 0n;
+    for (const word of words) integer = (integer << 32n) | BigInt(word);
+    if (integer === 0n) return -Infinity;
+    const bitLength = integer.toString(2).length;
+    const shift = Math.max(0, bitLength - 53);
+    const top = Number(integer >> BigInt(shift));
+    const log2Value = Math.log2(top) + shift - 256;
+    return log2Value * Math.LOG10E * Math.LN2;
   }
-  const cap = getWindStorageCap();
-  const available = Math.max(0, cap - state.windStorage);
-  const stored = Math.min(available, generated);
-  const wasted = Math.max(0, generated - stored);
-  state.windStorage += stored;
-  state.windWasted += wasted;
-  return { generated, stored, wasted };
+  return Math.log10(Math.max(Number.MIN_VALUE, Math.random()));
 }
 
-function selectNormalRarity() {
-  const luck = getRuneLuckMultiplier();
-  for (const rarity of RARITY_TIERS) {
-    if (rarity.id === "faint") return rarity;
-    const adjustedChance = Math.min(0.95, rarity.chance * luck);
-    if (Math.random() < adjustedChance) return rarity;
-  }
-  return RARITY_TIERS[RARITY_TIERS.length - 1];
+function chanceFromLogDenominator(logDenominator) {
+  return randomLog10Unit() <= -Math.max(0, logDenominator);
 }
 
-function selectPityRarity() {
-  const roll = Math.random();
-  if (roll < 1e-30) return RARITY_TIERS.find(rarity => rarity.id === "eternal");
-  if (roll < 1e-6) return RARITY_TIERS.find(rarity => rarity.id === "astral");
-  if (roll < 0.01) return RARITY_TIERS.find(rarity => rarity.id === "luminous");
-  return RARITY_TIERS.find(rarity => rarity.id === "resonant");
-}
-
-function chooseRuneForRarity(rarityId) {
-  const candidates = Object.values(RUNE_DEFINITIONS).filter(rune => rune.rarity === rarityId);
-  return candidates[Math.floor(Math.random() * candidates.length)];
-}
-
-function grantRune(rune) {
-  const current = state.ownedRunes[rune.id];
-  if (!current || current.level <= 0) {
-    state.ownedRunes[rune.id] = { level: 1, exp: 0, copies: 1 };
-    return { rune, newRune: true, levelsGained: 1, level: 1 };
+function chooseRuneRarity(forceHarmonic = false) {
+  const luckLogReduction = Math.log10(getRuneLuckMultiplier());
+  if (forceHarmonic) {
+    if (chanceFromLogDenominator(Math.max(0, RARITIES.paradox.logDenominator - luckLogReduction))) return "paradox";
+    if (chanceFromLogDenominator(Math.max(0, RARITIES.celestial.logDenominator - luckLogReduction))) return "celestial";
+    return "harmonic";
   }
 
-  current.copies = Math.max(1, Math.floor(current.copies || 1)) + 1;
-  if (current.level >= MAX_RUNE_LEVEL) return { rune, newRune: false, levelsGained: 0, level: current.level };
-  current.exp = Math.max(0, Math.floor(current.exp || 0)) + 1;
-  let levelsGained = 0;
-  while (current.level < MAX_RUNE_LEVEL) {
-    const requirement = getRuneExpRequirement(current.level);
-    if (current.exp < requirement) break;
-    current.exp -= requirement;
-    current.level += 1;
-    levelsGained += 1;
+  if (chanceFromLogDenominator(Math.max(0, RARITIES.eternal.logDenominator - luckLogReduction))) return "eternal";
+  if (chanceFromLogDenominator(Math.max(0, RARITIES.paradox.logDenominator - luckLogReduction))) return "paradox";
+  if (chanceFromLogDenominator(Math.max(0, RARITIES.celestial.logDenominator - luckLogReduction))) return "celestial";
+  if (chanceFromLogDenominator(Math.max(0, RARITIES.harmonic.logDenominator - luckLogReduction))) return "harmonic";
+  if (chanceFromLogDenominator(Math.max(0, RARITIES.charged.logDenominator - luckLogReduction))) return "charged";
+  return "trace";
+}
+
+function awardRune(runeId) {
+  const config = RUNES[runeId];
+  const current = getRuneData(runeId);
+  let level = current.level;
+  let exp = current.exp + 1;
+  while (level < 100 && exp >= runeExpRequired(level)) {
+    exp -= runeExpRequired(level);
+    level += 1;
   }
-  return { rune, newRune: false, levelsGained, level: current.level };
+  if (level >= 100) exp = 0;
+  state.ownedRunes[runeId] = { level, exp };
+  return { config, level, exp };
 }
 
-function rollOneRune() {
-  const pityThreshold = getRunePityThreshold();
-  const pityTriggered = state.runePity + 1 >= pityThreshold;
-  const rarity = pityTriggered ? selectPityRarity() : selectNormalRarity();
-  const rune = chooseRuneForRarity(rarity.id);
-  const result = grantRune(rune);
-  state.totalRuneRolls += 1;
-  if (rarity.rank >= 2) state.runePity = 0;
-  else state.runePity += 1;
-  return { ...result, rarity, pityTriggered };
+function rollRuneOnce(forcePity = false) {
+  const rarity = chooseRuneRarity(forcePity);
+  const candidates = Object.values(RUNES).filter(runeConfig => runeConfig.rarity === rarity);
+  const picked = candidates[Math.floor(Math.random() * candidates.length)] || Object.values(RUNES)[0];
+  return awardRune(picked.id);
 }
 
-function rollRuneBatch(options = {}) {
-  if (!hasPrestigeUnlock("runes")) return [];
+function attemptRuneRoll(silent = false) {
+  if (!hasPrestige(1) || state.runeCooldown > 0) return false;
+  const cost = getRuneRollCost();
+  if (!spendCurrency("wind", cost)) return false;
+
   const bulk = getRuneBulk();
-  const cost = getRuneCostPerUnit() * bulk;
-  if (state.wind + 1e-9 < cost) return [];
-  if (!options.ignoreCooldown && state.runeCooldown > 0) return [];
-
-  state.wind -= cost;
   const results = [];
-  for (let index = 0; index < bulk; index += 1) results.push(rollOneRune());
-  state.runeCooldown = getRuneCooldownSeconds();
-  state.lastRuneResults = results.slice(-6).map(result => ({ id: result.rune.id, rarity: result.rarity.id, newRune: result.newRune, level: result.level }));
-  if (!options.silent) {
-    const best = results.reduce((current, result) => result.rarity.rank > current.rarity.rank ? result : current, results[0]);
-    showToast(`${best.rarity.name}: ${best.rune.name}${results.length > 1 ? ` +${results.length - 1} more` : ""}`);
-  }
-  if (options.render !== false) renderAll();
-  return results;
-}
-
-function toggleAutoRune() {
-  if (!hasResearchEffect("runeAutoRoll")) return;
-  state.autoRuneEnabled = !state.autoRuneEnabled;
-  renderRunesPage();
-}
-
-function processRuneTime(effectiveSeconds) {
-  state.runeCooldown -= Math.max(0, effectiveSeconds);
-  if (!state.autoRuneEnabled || !hasResearchEffect("runeAutoRoll")) {
-    state.runeCooldown = Math.max(0, state.runeCooldown);
-    return;
+  for (let index = 0; index < bulk; index += 1) {
+    state.runePity += 1;
+    const pityTriggered = state.runePity >= getRunePityThreshold();
+    const result = rollRuneOnce(pityTriggered);
+    if (pityTriggered) state.runePity = 0;
+    results.push(result);
+    state.totalRuneRolls += 1;
   }
 
-  let loops = 0;
-  while (state.runeCooldown <= 0 && state.wind + 1e-9 >= getRuneBatchCost() && loops < 1_000) {
-    const carriedCooldown = state.runeCooldown;
-    const results = rollRuneBatch({ silent: true, render: false, ignoreCooldown: true });
-    if (!results.length) break;
-    state.runeCooldown = carriedCooldown + getRuneCooldownSeconds();
-    loops += 1;
-  }
-  state.runeCooldown = Math.max(0, state.runeCooldown);
+  state.runeCooldown = getRuneCooldown();
+  const best = results.reduce((currentBest, result) => {
+    const order = ["trace", "charged", "harmonic", "celestial", "paradox", "eternal"];
+    return order.indexOf(result.config.rarity) > order.indexOf(currentBest.config.rarity) ? result : currentBest;
+  }, results[0]);
+  state.lastRuneResult = `${RARITIES[best.config.rarity].name}: ${best.config.name} — Lv ${best.level}`;
+  if (!silent) showToast(state.lastRuneResult);
+  return true;
 }
 
-function processAutoPowerPurchases() {
-  let loops = 0;
-  while (loops < 50) {
-    const candidates = ["powerUpgradeLevel", "powerResonatorLevel"].filter(field => {
-      const cap = getUpgradeCap(field);
-      return (!Number.isFinite(cap) || state[field] < cap) && canAfford(state.power, getUpgradeCost(field));
-    });
-    if (!candidates.length) break;
-    candidates.sort((left, right) => getUpgradeCost(left).compare(getUpgradeCost(right)));
-    if (!buyRepeatableUpgrade(candidates[0], 1, { silent: true, render: false })) break;
-    loops += 1;
-  }
+/* ---------------------------- Passive progression -------------------------- */
+
+function advancePrisms(seconds, efficiency = 1) {
+  const interval = getPrismInterval();
+  const totalProgress = state.prismProgress + seconds;
+  const cycles = Math.floor(totalProgress / interval);
+  state.prismProgress = totalProgress - cycles * interval;
+  if (cycles <= 0) return H(0);
+  const gain = getPrismGainPerCycle().mul(cycles * efficiency);
+  state.prisms = state.prisms.add(gain);
+  return gain;
 }
 
-function processAutomations() {
-  const now = Date.now();
-  if (hasPrestigeUnlock("autoRebirth") && state.autoRebirthEnabled && now - lastAutoRebirthAt >= 1_000 && !getRebirthGain().isZero()) {
-    lastAutoRebirthAt = now;
-    performRebirth({ silent: true, render: false, save: false });
+function advanceWind(seconds, efficiency = 1) {
+  const generated = getWindRate().mul(seconds * efficiency);
+  if (generated.lte(0)) return H(0);
+  const capacity = getWindCapacity();
+  const availableSpace = capacity.sub(state.windStorage);
+  const stored = generated.min(availableSpace);
+  const wasted = generated.sub(stored);
+  state.windStorage = state.windStorage.add(stored).min(capacity);
+  state.wastedWind = state.wastedWind.add(wasted);
+
+  if (getResearchFlag("autoWind")) {
+    state.wind = state.wind.add(state.windStorage);
+    state.windStorage = H(0);
   }
-  if (hasPrestigeUnlock("powerAutomation") && state.autoPowerEnabled) processAutoPowerPurchases();
+  return stored;
 }
 
-function applyProgress(seconds, efficiency = 1) {
+function processPassiveProgress(seconds, efficiency = 1) {
   const safeSeconds = Math.max(0, Number(seconds) || 0);
-  const safeEfficiency = clamp(Number(efficiency) || 0, 0, 1);
-  if (safeSeconds <= 0 || safeEfficiency <= 0) return { powerGain: HugeNumber.zero(), prismGain: 0, insightGain: 0, windGain: 0 };
+  if (safeSeconds <= 0) return { power: H(0), prisms: H(0), insight: H(0), wind: H(0) };
 
-  const effectiveSeconds = safeSeconds * safeEfficiency;
-  const powerBefore = state.power.clone();
-  const prismBefore = state.prisms;
-  const insightBefore = state.insight;
-  const windBefore = state.wind;
-
-  state.power = state.power.add(getPowerPerSecond().multiply(effectiveSeconds));
-  state.prismProgress += effectiveSeconds;
-  resolvePrismGeneration(false);
-  if (hasPrestigeUnlock("research")) state.insight += getInsightPerSecond() * effectiveSeconds;
-  if (hasPrestigeUnlock("wind")) addWindProduction(effectiveSeconds);
-  if (hasPrestigeUnlock("runes")) processRuneTime(effectiveSeconds);
+  const powerGain = getPowerPerSecond().mul(safeSeconds * efficiency);
+  state.power = state.power.add(powerGain);
+  const prismGain = advancePrisms(safeSeconds, efficiency);
+  const insightGain = getInsightRate().mul(safeSeconds * efficiency);
+  state.insight = state.insight.add(insightGain);
+  const windGain = advanceWind(safeSeconds, efficiency);
   state.totalPlayTime += safeSeconds;
-  processAutomations();
-
-  return {
-    powerGain: state.power.subtract(powerBefore),
-    prismGain: state.prisms - prismBefore,
-    insightGain: state.insight - insightBefore,
-    windGain: state.wind - windBefore
-  };
+  return { power: powerGain, prisms: prismGain, insight: insightGain, wind: windGain };
 }
 
-function applyOfflineProgress(elapsedSeconds) {
-  const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+function applyOfflineProgress(rawSeconds, showModal) {
+  const limit = getOfflineLimit();
+  const appliedSeconds = Number.isFinite(limit) ? Math.min(rawSeconds, limit) : rawSeconds;
   const efficiency = getOfflineEfficiency();
-  const limitSeconds = getOfflineLimitSeconds();
-  const appliedSeconds = Number.isFinite(limitSeconds) ? Math.min(elapsed, limitSeconds) : elapsed;
-  const powerBefore = state.power.clone();
-  const prismBefore = state.prisms;
-  const gains = applyProgress(appliedSeconds, efficiency);
-  return {
-    elapsedSeconds: elapsed, appliedSeconds, efficiency, limitSeconds,
-    capped: Number.isFinite(limitSeconds) && elapsed > limitSeconds,
-    powerBefore, powerAfter: state.power.clone(), powerGain: gains.powerGain,
-    prismBefore, prismAfter: state.prisms, prismGain: gains.prismGain
-  };
-}
+  const startingPower = state.power.clone();
+  state.runeCooldown = Math.max(0, state.runeCooldown - appliedSeconds);
+  const gains = processPassiveProgress(appliedSeconds, efficiency);
 
-function applySuspendedBackgroundProgress(elapsedSeconds, trackHiddenSession) {
-  const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
-  const efficiency = getOfflineEfficiency();
-  const limitSeconds = getOfflineLimitSeconds();
-  const consumed = trackHiddenSession ? hiddenOfflineConsumedSeconds : 0;
-  const remaining = Number.isFinite(limitSeconds) ? Math.max(0, limitSeconds - consumed) : Infinity;
-  const appliedSeconds = Math.min(elapsed, remaining);
-  if (appliedSeconds > 0) {
-    applyProgress(appliedSeconds, efficiency);
-    if (trackHiddenSession) hiddenOfflineConsumedSeconds += appliedSeconds;
+  const report = {
+    rawSeconds,
+    appliedSeconds,
+    efficiency,
+    startingPower,
+    endingPower: state.power.clone(),
+    gains
+  };
+
+  if (showModal && appliedSeconds >= 5) {
+    pendingOfflineReport = report;
+    renderOfflineModal(report);
   }
-  return appliedSeconds;
+  return report;
 }
 
-function processRealTime(treatAsHidden = visibilityWasHidden) {
+function autoBuyCheapest(upgradeIds, maximumPurchases = 40) {
+  let purchased = 0;
+  while (purchased < maximumPurchases) {
+    const affordable = upgradeIds
+      .filter(id => estimateAffordableCount(id) > 0)
+      .sort((left, right) => getUpgradeCost(left).compare(getUpgradeCost(right)));
+    if (affordable.length === 0) break;
+    if (!buyRepeatableUpgrade(affordable[0], 1, true)) break;
+    purchased += 1;
+  }
+  return purchased;
+}
+
+function processAutomation(deltaSeconds) {
+  automationTimer += deltaSeconds;
+  autoRebirthTimer += deltaSeconds;
+  if (automationTimer < 0.2) return;
+  automationTimer = 0;
+
+  if (hasPrestige(1) && state.autoPowerEnabled) {
+    if (powerUpgradeDoesNotSpend()) {
+      buyRepeatableUpgrade("flux", Infinity, true);
+      buyRepeatableUpgrade("resonator", Infinity, true);
+    } else {
+      autoBuyCheapest(["flux", "resonator"], 40);
+    }
+  }
+
+  if (getResearchFlag("autoRebirthUpgrades") && state.autoRebirthUpgradesEnabled) {
+    autoBuyCheapest(["amplifier", "core"], 40);
+  }
+
+  if (hasPrestige(1) && state.autoRebirthEnabled && autoRebirthTimer >= 1 && getRebirthGain().gt(0)) {
+    performRebirth(true);
+    autoRebirthTimer = 0;
+  }
+
+  if (getResearchFlag("autoRune") && state.autoRuneEnabled && state.runeCooldown <= 0) {
+    attemptRuneRoll(true);
+  }
+}
+
+function gameLoop() {
   const now = Date.now();
-  const elapsedSeconds = Math.max(0, (now - lastTickAt) / 1_000);
-  lastTickAt = now;
-  if (elapsedSeconds > 0) {
-    const suspended = elapsedSeconds > BACKGROUND_SUSPEND_THRESHOLD_SECONDS;
-    if (suspended) applySuspendedBackgroundProgress(elapsedSeconds, treatAsHidden);
-    else applyProgress(elapsedSeconds, 1);
-    autosaveAccumulator += elapsedSeconds * 1_000;
+  const elapsed = Math.max(0, (now - lastLoopTimestamp) / 1000);
+  lastLoopTimestamp = now;
+  state.lastUpdate = now;
+
+  if (elapsed > SUSPEND_GAP_SECONDS) {
+    applyOfflineProgress(elapsed, false);
+  } else {
+    processPassiveProgress(Math.min(elapsed, 2), 1);
+    state.runeCooldown = Math.max(0, state.runeCooldown - elapsed);
+    processAutomation(elapsed);
   }
-  return elapsedSeconds;
+
+  autosaveTimer += elapsed;
+  if (autosaveTimer >= AUTOSAVE_SECONDS) {
+    autosaveTimer = 0;
+    saveGame(false);
+  }
+
+  renderAll();
 }
 
-/* ---------------------------------- UI ---------------------------------- */
+/* -------------------------------- Rendering -------------------------------- */
 
-function updateUnlockVisibility() {
-  const researchUnlocked = hasPrestigeUnlock("research");
-  const windUnlocked = hasPrestigeUnlock("wind");
-  const runesUnlocked = hasPrestigeUnlock("runes");
-  elements.researchNav.classList.toggle("hidden", !researchUnlocked);
-  elements.windNav.classList.toggle("hidden", !windUnlocked);
-  elements.runesNav.classList.toggle("hidden", !runesUnlocked);
-  elements.headerInsightChip.classList.toggle("hidden", !researchUnlocked);
-  elements.headerWindChip.classList.toggle("hidden", !windUnlocked);
-  elements.powerAutomationPanel.classList.toggle("hidden", !hasPrestigeUnlock("powerAutomation"));
-  elements.rebirthAutomationPanel.classList.toggle("hidden", !hasPrestigeUnlock("autoRebirth"));
-  const pageUnlocked = activePage === "research" ? researchUnlocked
-    : activePage === "wind" ? windUnlocked
-      : activePage === "runes" ? runesUnlocked
-        : true;
-  if (!pageUnlocked) setActivePage("power");
-  document.body.classList.toggle("first-shift-theme", state.selectedCosmetic === "first-shift" && isPrestigeUnlocked());
+function cacheElements() {
+  document.querySelectorAll("[id]").forEach(element => { elements[element.id] = element; });
 }
 
-function setActivePage(pageName) {
-  if (pageName === "research" && !hasPrestigeUnlock("research")) return;
-  if (pageName === "wind" && !hasPrestigeUnlock("wind")) return;
-  if (pageName === "runes" && !hasPrestigeUnlock("runes")) return;
-  activePage = pageName;
-  document.querySelectorAll(".nav-button").forEach(button => button.classList.toggle("active", button.dataset.page === pageName));
-  document.querySelectorAll("[data-page-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.pagePanel === pageName));
-  if (pageName === "tree") renderTree();
-  if (pageName === "research") renderResearchTree();
-  if (pageName === "runes") renderRunesPage();
+function setActivePage(page) {
+  if (["research", "wind", "runes"].includes(page) && !hasPrestige(1)) page = "prestige";
+  activePage = page;
+  document.querySelectorAll(".nav-button").forEach(button => button.classList.toggle("active", button.dataset.page === page));
+  document.querySelectorAll(".page-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.pagePanel === page));
+  elements.sidebar.classList.remove("open");
+  if (page === "prism-tree") renderPrismTree();
+  if (page === "research") renderResearchTree();
+}
+
+function renderUnlockVisibility() {
+  const unlocked = hasPrestige(1);
+  elements.navResearch.classList.toggle("hidden", !unlocked);
+  elements.navWind.classList.toggle("hidden", !unlocked);
+  elements.navRunes.classList.toggle("hidden", !unlocked);
+  elements.headerInsightChip.classList.toggle("hidden", !unlocked);
+  elements.headerWindChip.classList.toggle("hidden", !unlocked);
+  elements.autoPowerControl.classList.toggle("hidden", !unlocked);
+  elements.autoRebirthControl.classList.toggle("hidden", !unlocked);
+  elements.autoRebirthUpgradeControl.classList.toggle("hidden", !getResearchFlag("autoRebirthUpgrades"));
+  elements.autoRuneControl.classList.toggle("hidden", !getResearchFlag("autoRune"));
+  elements.rebirthContinuityNote.classList.toggle("hidden", !getResearchFlag("preservePowerOnRebirth"));
 }
 
 function renderHeader() {
-  const pps = getPowerPerSecond();
-  const prismInterval = getPrismInterval();
-  const remaining = Math.max(0, prismInterval - state.prismProgress);
-  elements.headerPower.textContent = formatNumber(state.power);
-  elements.headerPowerRate.textContent = `+${formatNumber(pps)}/s`;
-  elements.headerPrism.textContent = formatInteger(state.prisms);
-  elements.headerPrismTimer.textContent = `+${formatDecimal(getPrismGainPerCycle())} in ${remaining.toFixed(1)}s`;
-  elements.headerRebirthPoints.textContent = formatInteger(state.rebirthPoints);
-  if (hasPrestigeUnlock("research")) {
-    elements.headerInsight.textContent = formatDecimal(state.insight);
-    elements.headerInsightRate.textContent = `+${formatDecimal(getInsightPerSecond(), 3)}/s`;
-  }
-  if (hasPrestigeUnlock("wind")) {
-    elements.headerWind.textContent = formatDecimal(state.wind);
-    elements.headerWindRate.textContent = `${formatDecimal(state.windStorage)} stored`;
-  }
+  elements.headerPower.textContent = formatHuge(state.power);
+  elements.headerPowerRate.textContent = `+${formatHuge(getPowerPerSecond())}/s`;
+  elements.headerPrisms.textContent = formatHuge(state.prisms);
+  elements.headerPrismTimer.textContent = `${Math.max(0, getPrismInterval() - state.prismProgress).toFixed(1)}s`;
+  elements.headerRebirthPoints.textContent = formatHuge(state.rebirthPoints);
+  elements.headerInsight.textContent = formatHuge(state.insight);
+  elements.headerInsightRate.textContent = `+${formatHuge(getInsightRate())}/s`;
+  elements.headerWind.textContent = formatHuge(state.wind);
+  elements.playTimeDisplay.textContent = formatDuration(state.totalPlayTime);
+  elements.sidebarPrestige.textContent = formatLevelNumber(state.prestigeLevel);
+}
+
+function renderUpgradeCard(id) {
+  const config = UPGRADE_CONFIG[id];
+  const level = getUpgradeLevel(id);
+  const cap = config.cap();
+  const maxed = Number.isFinite(cap) && level >= cap;
+  const cost = getUpgradeCost(id, level);
+  const currencyKey = getUpgradeCurrency(id);
+  const affordable = getCurrency(currencyKey).gte(cost) && !maxed;
+  const levelText = Number.isFinite(cap) ? `Lv ${formatLevelNumber(level)} / ${formatLevelNumber(cap)}` : `Lv ${formatLevelNumber(level)}`;
+  const freeNote = currencyKey === "power" && powerUpgradeDoesNotSpend() ? "Requirement only — not spent" : `${formatHuge(cost)} ${currencyName(currencyKey)}`;
+
+  return `
+    <article class="upgrade-card" data-upgrade-card="${id}">
+      <div class="upgrade-icon">${config.icon}</div>
+      <div class="upgrade-body">
+        <div class="upgrade-topline"><span class="upgrade-tag">${config.tag}</span><span class="level-badge" title="${levelText}">${maxed ? `${levelText} — MAX` : levelText}</span></div>
+        <h3>${config.name}</h3>
+        <p class="upgrade-description">${config.description}</p>
+        <div class="upgrade-values"><div><span>Current</span><strong>${config.current(level)}</strong></div><div><span>Next</span><strong>${maxed ? "Maxed" : config.next(level)}</strong></div></div>
+        <div class="upgrade-footer">
+          <div class="upgrade-cost"><span>${maxed ? "Status" : "Cost"}</span><strong>${maxed ? "Maximum level" : freeNote}</strong></div>
+          <div class="upgrade-actions"><button class="secondary-button buy-one" type="button" data-upgrade="${id}" ${affordable ? "" : "disabled"}>Buy 1</button><button class="secondary-button buy-max" type="button" data-upgrade="${id}" ${affordable ? "" : "disabled"}>Buy Max</button></div>
+        </div>
+      </div>
+    </article>`;
+}
+
+function wireUpgradeButtons(container) {
+  container.querySelectorAll(".buy-one").forEach(button => button.addEventListener("click", () => { buyRepeatableUpgrade(button.dataset.upgrade, 1); renderAll(); }));
+  container.querySelectorAll(".buy-max").forEach(button => button.addEventListener("click", () => { buyRepeatableUpgrade(button.dataset.upgrade, Infinity); renderAll(); }));
 }
 
 function renderPowerPage() {
-  const pps = getPowerPerSecond();
-  const fluxCost = getUpgradeCost("powerUpgradeLevel");
-  const resonatorCost = getUpgradeCost("powerResonatorLevel");
-  const resonatorMultiplier = getPowerResonatorMultiplier();
-  const resonatorCap = getPowerResonatorCap();
-  const resonatorMaxed = state.powerResonatorLevel >= resonatorCap;
-
-  elements.powerAmount.textContent = formatNumber(state.power);
-  elements.powerPerSecond.textContent = `${formatNumber(pps)} Power per second`;
-  elements.autoPowerToggle.checked = Boolean(state.autoPowerEnabled);
-
-  elements.powerUpgradeLevel.textContent = formatInteger(state.powerUpgradeLevel);
-  elements.powerUpgradeEffect.textContent = `+${formatNumber(getFluxBaseBonus())}/s`;
-  elements.powerUpgradeNextEffect.textContent = `+${formatNumber(getFluxBaseBonus().add(1))}/s`;
-  elements.powerUpgradeCost.textContent = `${formatNumber(fluxCost)} Power`;
-  elements.buyPowerUpgrade.disabled = !canAfford(state.power, fluxCost);
-  elements.buyMaxPowerUpgrade.disabled = !canAfford(state.power, fluxCost);
-
-  elements.powerResonatorLevel.textContent = `${formatInteger(state.powerResonatorLevel)} / ${formatInteger(resonatorCap)}`;
-  elements.powerResonatorEffect.textContent = `×${formatNumber(resonatorMultiplier)}`;
-  elements.powerResonatorNextEffect.textContent = resonatorMaxed ? "Max level" : `×${formatNumber(resonatorMultiplier.multiply(1.25))}`;
-  elements.powerResonatorCost.textContent = resonatorMaxed ? "CAP REACHED" : `${formatNumber(resonatorCost)} Power`;
-  elements.buyPowerResonator.disabled = resonatorMaxed || !canAfford(state.power, resonatorCost);
-  elements.buyMaxPowerResonator.disabled = resonatorMaxed || !canAfford(state.power, resonatorCost);
+  elements.powerAmount.textContent = formatHuge(state.power);
+  elements.powerPerSecond.textContent = `${formatHuge(getPowerPerSecond())} Power per second`;
+  elements.autoPowerToggle.checked = state.autoPowerEnabled;
+  elements.powerUpgradeGrid.innerHTML = renderUpgradeCard("flux") + renderUpgradeCard("resonator");
+  wireUpgradeButtons(elements.powerUpgradeGrid);
 }
 
 function renderRebirthPage() {
   const gain = getRebirthGain();
-  const ampCost = getUpgradeCost("rebirthUpgradeLevel");
-  const coreCost = getUpgradeCost("rebirthCoreLevel");
-  const currentMultiplier = getRebirthPowerMultiplier();
-  const requirementRemaining = HN(BASE_REBIRTH_REQUIREMENT).subtract(state.power).max(0);
-  const ampCap = getRebirthAmplifierCap();
-  const ampMaxed = state.rebirthUpgradeLevel >= ampCap;
-
-  elements.autoRebirthToggle.checked = Boolean(state.autoRebirthEnabled);
-  elements.rebirthGain.textContent = `${formatInteger(gain)} Rebirth Points`;
-  elements.rebirthButton.disabled = gain.isZero();
-  elements.rebirthRequirementText.textContent = gain.greaterThan(0)
-    ? `Ready. ${formatNumber(state.power.floor())} Power grants ${formatInteger(gain)} RP after permanent bonuses.`
-    : `${formatNumber(requirementRemaining)} more Power required.`;
-
-  elements.rebirthUpgradeLevel.textContent = `${formatInteger(state.rebirthUpgradeLevel)} / ${formatInteger(ampCap)}`;
-  elements.rebirthUpgradeEffect.textContent = `×${formatNumber(currentMultiplier)}`;
-  elements.rebirthUpgradeNextEffect.textContent = ampMaxed ? "Max level" : `×${formatNumber(currentMultiplier.multiply(1.5))}`;
-  elements.rebirthUpgradeCost.textContent = ampMaxed ? "CAP REACHED" : `${formatInteger(ampCost)} RP`;
-  elements.buyRebirthUpgrade.disabled = ampMaxed || !canAfford(state.rebirthPoints, ampCost);
-  elements.buyMaxRebirthUpgrade.disabled = ampMaxed || !canAfford(state.rebirthPoints, ampCost);
-
-  elements.rebirthCoreLevel.textContent = formatInteger(state.rebirthCoreLevel);
-  elements.rebirthCoreEffect.textContent = `+${formatNumber(getRebirthCoreBaseBonus())}/s`;
-  elements.rebirthCoreNextEffect.textContent = `+${formatNumber(getRebirthCoreBaseBonus().add(2))}/s`;
-  elements.rebirthCoreCost.textContent = `${formatInteger(coreCost)} RP`;
-  elements.buyRebirthCore.disabled = !canAfford(state.rebirthPoints, coreCost);
-  elements.buyMaxRebirthCore.disabled = !canAfford(state.rebirthPoints, coreCost);
+  elements.rebirthGain.textContent = `${formatHuge(gain)} Rebirth Points`;
+  elements.rebirthButton.disabled = gain.lte(0);
+  if (gain.gt(0)) {
+    elements.rebirthRequirementText.textContent = getResearchFlag("preservePowerOnRebirth")
+      ? "Ready. Only newly reached Power milestones are claimable."
+      : `Ready at ${formatHuge(state.power)} Power.`;
+  } else {
+    const nextBase = getResearchFlag("preservePowerOnRebirth") ? state.rebirthClaimedBase.add(1) : H(1);
+    const nextRequirement = nextBase.mul(BASE_REBIRTH_REQUIREMENT);
+    elements.rebirthRequirementText.textContent = `${formatHuge(nextRequirement.sub(state.power))} more Power required.`;
+  }
+  elements.autoRebirthToggle.checked = state.autoRebirthEnabled;
+  elements.autoRebirthUpgradeToggle.checked = state.autoRebirthUpgradesEnabled;
+  elements.rebirthUpgradeGrid.innerHTML = renderUpgradeCard("amplifier") + renderUpgradeCard("core");
+  wireUpgradeButtons(elements.rebirthUpgradeGrid);
 }
 
-function createCurvedTreePath(from, to, index, heightScale = 7.6) {
-  const x1 = from.x * 10;
-  const y1 = from.y * heightScale;
-  const x2 = to.x * 10;
-  const y2 = to.y * heightScale;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+function makeCurvePath(from, to, index) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const midpointX = (from.x + to.x) / 2;
+  const midpointY = (from.y + to.y) / 2;
   const length = Math.max(1, Math.hypot(dx, dy));
-  const direction = index % 2 === 0 ? 1 : -1;
-  const bend = Math.min(42, length * 0.12) * direction;
-  const cx = (x1 + x2) / 2 - (dy / length) * bend;
-  const cy = (y1 + y2) / 2 + (dx / length) * bend;
-  return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+  const bend = ((index % 2 === 0 ? 1 : -1) * Math.min(52, length * 0.16));
+  const controlX = midpointX - (dy / length) * bend;
+  const controlY = midpointY + (dx / length) * bend;
+  return `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`;
 }
 
-function renderTree() {
-  elements.treePrismBalance.textContent = formatInteger(state.prisms);
-  elements.treeNodes.innerHTML = "";
-  elements.treeLines.innerHTML = "";
+function centerTreeViewport(viewport, x, y) {
+  if (!viewport || viewport.dataset.centered === "1") return;
+  requestAnimationFrame(() => {
+    viewport.scrollLeft = Math.max(0, x - viewport.clientWidth / 2);
+    viewport.scrollTop = Math.max(0, y - viewport.clientHeight / 2);
+    viewport.dataset.centered = "1";
+  });
+}
 
-  TREE_CONNECTIONS.forEach(([fromId, toId], index) => {
-    const from = TREE_NODES[fromId];
-    const to = TREE_NODES[toId];
-    if (!isTreeNodeVisible(from) || !isTreeNodeVisible(to)) return;
+function renderPrismTree() {
+  elements.treePrismBalance.textContent = formatHuge(state.prisms);
+  elements.prismTreeNodes.innerHTML = "";
+  elements.prismTreeLines.innerHTML = "";
+
+  PRISM_CONNECTIONS.forEach(([fromId, toId], index) => {
+    const from = PRISM_TREE_NODES[fromId];
+    const to = PRISM_TREE_NODES[toId];
+    if (!isPrismNodeVisible(from) || !isPrismNodeVisible(to)) return;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", createCurvedTreePath(from, to, index));
-    path.classList.add("tree-line", to.branch);
+    path.setAttribute("d", makeCurvePath(from, to, index));
+    path.classList.add("tree-line");
     if (hasTreeNode(fromId)) path.classList.add("active");
-    elements.treeLines.appendChild(path);
+    elements.prismTreeLines.appendChild(path);
   });
 
-  for (const node of Object.values(TREE_NODES)) {
-    if (!isTreeNodeVisible(node)) continue;
-    const nodeState = getTreeNodeState(node);
-    const level = getTreeLevel(node.id);
-    const cost = getTreeNodeCost(node);
-    const balance = getTreeCurrencyBalance(node);
-    const affordable = ["available", "owned"].includes(nodeState) && canAfford(balance, cost);
+  Object.values(PRISM_TREE_NODES).forEach(nodeConfig => {
+    if (!isPrismNodeVisible(nodeConfig)) return;
+    const level = treeLevel(nodeConfig.id);
+    const stateName = getPrismNodeState(nodeConfig);
+    const cost = getPrismNodeCost(nodeConfig, level);
+    const affordable = stateName !== "maxed" && getCurrency(nodeConfig.currency).gte(cost);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `tree-node ${node.branch} ${nodeState}${affordable ? " affordable" : ""}${selectedTreeNodeId === node.id ? " selected" : ""}`;
-    button.style.left = `${node.x}%`;
-    button.style.top = `${node.y}%`;
-    button.dataset.nodeId = node.id;
-    button.setAttribute("aria-label", `${node.name}, ${nodeState}, level ${level} of ${node.maxLevel}`);
+    button.className = `tree-node ${stateName}${affordable ? " affordable" : ""}${selectedPrismNodeId === nodeConfig.id ? " selected" : ""}`;
+    button.style.left = `${nodeConfig.x}px`;
+    button.style.top = `${nodeConfig.y}px`;
+    button.setAttribute("aria-label", `${nodeConfig.name}, level ${level} of ${nodeConfig.maxLevel}`);
+    const levelCounter = `${level}/${nodeConfig.maxLevel}`;
+    const footer = stateName === "maxed" ? (nodeConfig.maxLevel === 1 ? "OWNED" : "MAX") : `${formatHuge(cost)} ${nodeConfig.currency === "prisms" ? "◇" : "W"}`;
+    button.innerHTML = `<span class="tree-node-shell"></span><span class="tree-node-content"><span class="tree-node-level">${levelCounter}</span><span class="tree-node-icon">${nodeConfig.icon}</span><span class="tree-node-footer">${footer}</span></span>`;
+    button.addEventListener("click", () => { selectedPrismNodeId = nodeConfig.id; renderPrismTree(); });
+    elements.prismTreeNodes.appendChild(button);
+  });
 
-    const levelLabel = node.maxLevel > 1 ? `${level}/${node.maxLevel}` : `${level > 0 ? 1 : 0}/1`;
-    const costLabel = nodeState === "maxed" ? "Maxed" : `${formatInteger(cost)} ${getTreeNodeCurrency(node) === "wind" ? "W" : "◇"}`;
-    button.innerHTML = `<span class="hex-border"></span><span class="hex-fill"></span><span class="hex-inner"><span class="node-tier-mini">${levelLabel}</span><span class="node-icon">${node.icon}</span><span class="node-cost-mini">${costLabel}</span></span>`;
-    button.addEventListener("click", () => selectTreeNode(node.id));
-    elements.treeNodes.appendChild(button);
-  }
-  renderSelectedTreeNode();
+  renderSelectedPrismNode();
+  centerTreeViewport(elements.prismTreeViewport, PRISM_TREE_NODES.originLens.x, PRISM_TREE_NODES.originLens.y);
 }
 
-function selectTreeNode(nodeId) {
-  selectedTreeNodeId = nodeId;
-  renderTree();
-}
-
-function renderSelectedTreeNode() {
-  const node = TREE_NODES[selectedTreeNodeId];
-  if (!node || !isTreeNodeVisible(node)) {
-    elements.nodePlaceholder.classList.remove("hidden");
-    elements.nodeDetails.classList.add("hidden");
+function renderSelectedPrismNode() {
+  const nodeConfig = PRISM_TREE_NODES[selectedPrismNodeId];
+  if (!nodeConfig || !isPrismNodeVisible(nodeConfig)) {
+    elements.prismNodePlaceholder.classList.remove("hidden");
+    elements.prismNodeDetails.classList.add("hidden");
     return;
   }
-  elements.nodePlaceholder.classList.add("hidden");
-  elements.nodeDetails.classList.remove("hidden");
-  const nodeState = getTreeNodeState(node);
-  const level = getTreeLevel(node.id);
-  const cost = getTreeNodeCost(node);
-  const currencyField = getTreeNodeCurrency(node);
-  const prerequisiteNames = node.prerequisites.length ? node.prerequisites.map(id => TREE_NODES[id].name).join(" + ") : "None";
 
-  elements.selectedNodeIcon.textContent = node.icon;
-  elements.selectedNodeCategory.textContent = node.category;
-  elements.selectedNodeName.textContent = node.name;
-  elements.selectedNodeDescription.textContent = node.description;
-  elements.selectedNodeEffect.textContent = getTreeNodeEffectText(node, level);
-  elements.selectedNodeCost.textContent = nodeState === "maxed" ? "Maxed" : `${formatInteger(cost)} ${currencyName(currencyField, cost)}`;
-  elements.selectedNodeStatus.textContent = node.maxLevel > 1 ? `Level ${level}/${node.maxLevel}` : `${level > 0 ? 1 : 0}/1`;
-  elements.selectedNodeRequirement.textContent = prerequisiteNames;
-  elements.purchaseTreeNode.textContent = nodeState === "maxed" ? "Maxed" : node.maxLevel > 1 && level > 0 ? "Buy next level" : "Purchase node";
-  elements.purchaseTreeNode.disabled = nodeState === "maxed" || !areTreePrerequisitesMet(node) || !canAfford(getTreeCurrencyBalance(node), cost);
+  elements.prismNodePlaceholder.classList.add("hidden");
+  elements.prismNodeDetails.classList.remove("hidden");
+  const level = treeLevel(nodeConfig.id);
+  const stateName = getPrismNodeState(nodeConfig);
+  const cost = getPrismNodeCost(nodeConfig, level);
+  elements.prismSelectedIcon.textContent = nodeConfig.icon;
+  elements.prismSelectedCategory.textContent = nodeConfig.maxLevel === 1 ? "ONE-TIME NODE" : "REPEATABLE NODE";
+  elements.prismSelectedName.textContent = nodeConfig.name;
+  elements.prismSelectedDescription.textContent = nodeConfig.description;
+  elements.prismSelectedEffect.textContent = nodeConfig.effectText;
+  elements.prismSelectedLevel.textContent = `${level}/${nodeConfig.maxLevel}`;
+  elements.prismSelectedCost.textContent = stateName === "maxed" ? "Maxed" : `${formatHuge(cost)} ${currencyName(nodeConfig.currency)}`;
+  elements.prismSelectedRequirement.textContent = nodeConfig.prerequisites.length ? nodeConfig.prerequisites.map(id => PRISM_TREE_NODES[id].name).join(" + ") : "None";
+  elements.purchasePrismNode.disabled = stateName === "maxed" || !getCurrency(nodeConfig.currency).gte(cost);
+  elements.purchasePrismNode.textContent = stateName === "maxed" ? "Maximum level" : nodeConfig.maxLevel === 1 ? "Purchase node" : "Buy level";
 }
 
 function renderPrestigePage() {
-  const tier = getCurrentPrestigeTier();
-  const config = PRESTIGE_TIERS[tier];
-  elements.prestigeLevelLabel.textContent = formatInteger(state.prestigeLevel);
-  elements.totalPrestiges.textContent = formatInteger(state.totalPrestiges);
-  elements.prestigeRewardList.innerHTML = "";
-
-  const displayedConfig = config || PRESTIGE_TIERS[state.prestigeLevel] || PRESTIGE_TIERS[1];
-  displayedConfig.rewards.forEach(reward => {
-    const item = document.createElement("div");
-    item.className = `reward-item${!config ? " claimed" : ""}`;
-    item.innerHTML = `<span>${!config ? "✓" : "+"}</span><p>${reward}</p>`;
-    elements.prestigeRewardList.appendChild(item);
-  });
-
-  if (!config) {
-    elements.prestigeTierName.textContent = "Tier 1 complete";
-    elements.prestigeRequirement.textContent = "Tier 2 is not included in this build";
-    elements.prestigeProgressFill.style.width = "100%";
-    elements.prestigeProgressText.textContent = "Future tiers can be added through PRESTIGE_TIERS data.";
-    elements.prestigeRewardHeading.textContent = `${displayedConfig.name} rewards claimed`;
-    elements.prestigeButton.textContent = "Current content completed";
+  const tier = PRESTIGE_TIERS[state.prestigeLevel];
+  if (!tier) {
+    elements.prestigeTierLabel.textContent = "TIER 1 COMPLETE";
+    elements.prestigeCost.textContent = "First Shift achieved";
+    elements.prestigeStatusText.textContent = "Additional Prestige tiers are not included in this build.";
+    elements.prestigeButton.textContent = "No further tier";
     elements.prestigeButton.disabled = true;
-    return;
+  } else {
+    const cost = getPrestigeCost();
+    elements.prestigeTierLabel.textContent = `TIER ${tier.tier} — ${tier.name.toUpperCase()}`;
+    elements.prestigeCost.textContent = `${formatHuge(cost)} Power`;
+    elements.prestigeStatusText.textContent = state.power.gte(cost) ? "Requirement reached. The Shift is ready." : `${formatHuge(cost.sub(state.power))} more Power required.`;
+    elements.prestigeButton.textContent = "Initiate Prestige";
+    elements.prestigeButton.disabled = !state.power.gte(cost);
   }
 
-  const cost = getPrestigeCost();
-  const progress = getHugeProgressPercent(state.power, cost);
-  elements.prestigeTierName.textContent = `Tier ${tier} — ${config.name}`;
-  elements.prestigeRequirement.textContent = `${formatNumber(cost)} Power`;
-  elements.prestigeProgressFill.style.width = `${progress}%`;
-  elements.prestigeProgressText.textContent = `${progress.toFixed(progress >= 10 ? 1 : 2)}% of requirement`;
-  elements.prestigeRewardHeading.textContent = `${config.name} rewards`;
-  elements.prestigeButton.textContent = `Claim Prestige Tier ${tier}`;
-  elements.prestigeButton.disabled = !canAfford(state.power, cost);
+  const rewardTier = PRESTIGE_TIERS[0];
+  elements.prestigeRewardList.innerHTML = rewardTier.rewards.map(([title, description]) => `<div class="reward-item"><span>✦</span><div><strong>${title}</strong><small>${description}</small></div></div>`).join("");
 }
 
 function renderResearchTree() {
-  if (!hasPrestigeUnlock("research")) return;
-  elements.researchInsightBalance.textContent = formatDecimal(state.insight);
-  elements.researchNodes.innerHTML = "";
-  elements.researchLines.innerHTML = "";
+  elements.researchInsightBalance.textContent = formatHuge(state.insight);
+  elements.researchInsightRate.textContent = `+${formatHuge(getInsightRate())}/s`;
+  elements.researchTreeNodes.innerHTML = "";
+  elements.researchTreeLines.innerHTML = "";
 
   RESEARCH_CONNECTIONS.forEach(([fromId, toId], index) => {
     const from = RESEARCH_NODES[fromId];
     const to = RESEARCH_NODES[toId];
     if (!isResearchNodeVisible(from) || !isResearchNodeVisible(to)) return;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", createCurvedTreePath(from, to, index, 7));
-    path.classList.add("tree-line", "research-line", to.branch);
-    if (hasResearchNode(fromId)) path.classList.add("active");
-    elements.researchLines.appendChild(path);
+    path.setAttribute("d", makeCurvePath(from, to, index + 31));
+    path.classList.add("tree-line");
+    if (state.purchasedResearchNodes.includes(fromId)) path.classList.add("active");
+    elements.researchTreeLines.appendChild(path);
   });
 
-  for (const node of Object.values(RESEARCH_NODES)) {
-    if (!isResearchNodeVisible(node)) continue;
-    const nodeState = getResearchNodeState(node);
-    const affordable = nodeState === "available" && canAfford(state.insight, node.cost);
+  Object.values(RESEARCH_NODES).forEach(nodeConfig => {
+    if (!isResearchNodeVisible(nodeConfig)) return;
+    const stateName = getResearchNodeState(nodeConfig);
+    const affordable = stateName === "available" && state.insight.gte(nodeConfig.cost);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `tree-node research-node ${node.branch} ${nodeState}${affordable ? " affordable" : ""}${selectedResearchNodeId === node.id ? " selected" : ""}`;
-    button.style.left = `${node.x}%`;
-    button.style.top = `${node.y}%`;
-    button.innerHTML = `<span class="hex-border"></span><span class="hex-fill"></span><span class="hex-inner"><span class="node-tier-mini">${hasResearchNode(node.id) ? "1/1" : "0/1"}</span><span class="node-icon">${node.icon}</span><span class="node-cost-mini">${hasResearchNode(node.id) ? "Researched" : `${node.cost} I`}</span></span>`;
-    button.addEventListener("click", () => { selectedResearchNodeId = node.id; renderResearchTree(); });
-    elements.researchNodes.appendChild(button);
-  }
+    button.className = `tree-node research-node ${stateName}${affordable ? " affordable" : ""}${selectedResearchNodeId === nodeConfig.id ? " selected" : ""}`;
+    button.style.left = `${nodeConfig.x}px`;
+    button.style.top = `${nodeConfig.y}px`;
+    button.setAttribute("aria-label", `${nodeConfig.name}, ${stateName}`);
+    const owned = stateName === "purchased" ? "1/1" : "0/1";
+    const footer = stateName === "purchased" ? "OWNED" : stateName === "choice-blocked" ? "BLOCKED" : `${formatHuge(nodeConfig.cost)} ◆`;
+    button.innerHTML = `<span class="tree-node-shell"></span><span class="tree-node-content"><span class="tree-node-level">${owned}</span><span class="tree-node-icon">${nodeConfig.icon}</span><span class="tree-node-footer">${footer}</span></span>`;
+    button.addEventListener("click", () => { selectedResearchNodeId = nodeConfig.id; renderResearchTree(); });
+    elements.researchTreeNodes.appendChild(button);
+  });
+
   renderSelectedResearchNode();
+  centerTreeViewport(elements.researchTreeViewport, RESEARCH_NODES.firstObservation.x, RESEARCH_NODES.firstObservation.y);
 }
 
 function renderSelectedResearchNode() {
-  const node = RESEARCH_NODES[selectedResearchNodeId];
-  if (!node || !isResearchNodeVisible(node)) {
-    elements.researchPlaceholder.classList.remove("hidden");
-    elements.researchDetails.classList.add("hidden");
+  const nodeConfig = RESEARCH_NODES[selectedResearchNodeId];
+  if (!nodeConfig || !isResearchNodeVisible(nodeConfig)) {
+    elements.researchNodePlaceholder.classList.remove("hidden");
+    elements.researchNodeDetails.classList.add("hidden");
     return;
   }
-  elements.researchPlaceholder.classList.add("hidden");
-  elements.researchDetails.classList.remove("hidden");
-  const stateName = getResearchNodeState(node);
-  elements.selectedResearchIcon.textContent = node.icon;
-  elements.selectedResearchCategory.textContent = node.category;
-  elements.selectedResearchName.textContent = node.name;
-  elements.selectedResearchDescription.textContent = node.description;
-  elements.selectedResearchEffect.textContent = node.effectText;
-  elements.selectedResearchCost.textContent = stateName === "maxed" ? "Researched" : `${node.cost} Insight`;
-  elements.selectedResearchStatus.textContent = hasResearchNode(node.id) ? "1/1" : "0/1";
-  elements.selectedResearchRequirement.textContent = node.prerequisites.length ? node.prerequisites.map(id => RESEARCH_NODES[id].name).join(" + ") : "None";
-  elements.purchaseResearchNode.textContent = stateName === "maxed" ? "Researched" : "Research node";
-  elements.purchaseResearchNode.disabled = stateName !== "available" || !canAfford(state.insight, node.cost);
+
+  elements.researchNodePlaceholder.classList.add("hidden");
+  elements.researchNodeDetails.classList.remove("hidden");
+  const stateName = getResearchNodeState(nodeConfig);
+  elements.researchSelectedIcon.textContent = nodeConfig.icon;
+  elements.researchSelectedCategory.textContent = nodeConfig.exclusiveGroup ? "BRANCH CHOICE" : "ONE-TIME RESEARCH";
+  elements.researchSelectedName.textContent = nodeConfig.name;
+  elements.researchSelectedDescription.textContent = nodeConfig.description;
+  elements.researchSelectedEffect.textContent = nodeConfig.effectText;
+  elements.researchSelectedStatus.textContent = stateName === "choice-blocked" ? "Blocked by the other branch choice" : stateName === "purchased" ? "Purchased" : "Available";
+  elements.researchSelectedCost.textContent = stateName === "purchased" ? "Owned" : `${formatHuge(nodeConfig.cost)} Insight`;
+  elements.researchSelectedRequirement.textContent = nodeConfig.prerequisites.length ? nodeConfig.prerequisites.map(id => RESEARCH_NODES[id].name).join(" + ") : "None";
+  elements.purchaseResearchNode.disabled = stateName !== "available" || !state.insight.gte(nodeConfig.cost);
+  elements.purchaseResearchNode.textContent = stateName === "purchased" ? "Researched" : stateName === "choice-blocked" ? "Branch unavailable" : "Research protocol";
 }
 
 function renderWindPage() {
-  if (!hasPrestigeUnlock("wind")) return;
-  const cap = getWindStorageCap();
-  const turbineCap = getWindTurbineCap();
-  const output = getWindOutputPerSecond();
-  const cost = getUpgradeCost("windTurbineLevel");
-  const maxed = state.windTurbineLevel >= turbineCap;
-  const fill = cap > 0 ? clamp((state.windStorage / cap) * 100, 0, 100) : 0;
-
-  elements.windAmount.textContent = formatDecimal(state.wind);
-  elements.windStored.textContent = formatDecimal(state.windStorage);
-  elements.windStorageCap.textContent = formatDecimal(cap);
-  elements.windStorageFill.style.width = `${fill}%`;
-  elements.windProductionRate.textContent = `${formatDecimal(output, 3)} Wind/s · ${formatDecimal(state.windWasted)} total wasted`;
-  elements.windCollectAmount.textContent = formatDecimal(Math.min(getWindCollectAmount(), state.windStorage));
-  elements.collectWindButton.disabled = state.windStorage <= 0 || hasResearchEffect("windAutoCollect");
-  elements.windAutoStatus.textContent = hasResearchEffect("windAutoCollect") ? "Auto-collection active" : "Manual collection required";
-
-  elements.windTurbineLevel.textContent = `${formatInteger(state.windTurbineLevel)} / ${formatInteger(turbineCap)}`;
-  elements.windTurbineEffect.textContent = `${formatDecimal(output, 3)}/s`;
-  const nextOutput = (state.windTurbineLevel + 1) * BASE_WIND_PER_TURBINE * getTreeNumberProduct("windOutputMultiplier") * getRuneEffectProduct("windMultiplier") * getAllProductionRuneMultiplier();
-  elements.windTurbineNextEffect.textContent = maxed ? "Max level" : `${formatDecimal(nextOutput, 3)}/s`;
-  elements.windTurbineCost.textContent = maxed ? "CAP REACHED" : `${formatNumber(cost)} Power`;
-  elements.buyWindTurbine.disabled = maxed || !canAfford(state.power, cost);
-  elements.buyMaxWindTurbine.disabled = maxed || !canAfford(state.power, cost);
+  const capacity = getWindCapacity();
+  const percentage = capacity.gt(0) ? clamp(state.windStorage.div(capacity).toNumber() * 100, 0, 100) : 0;
+  elements.windGaugeFill.style.height = `${percentage}%`;
+  elements.windStored.textContent = formatHuge(state.windStorage);
+  elements.windCapacity.textContent = formatHuge(capacity);
+  elements.windProductionRate.textContent = `+${formatHuge(getWindRate())} Wind/s`;
+  elements.windCollectAmount.textContent = formatHuge(state.windStorage.min(getWindCollectAmount()));
+  elements.collectWindButton.disabled = state.windStorage.lte(0) || getResearchFlag("autoWind");
+  elements.windAutoStatus.textContent = getResearchFlag("autoWind") ? "Automatic collection active" : "Manual collection required";
+  elements.windTurbineCount.textContent = formatLevelNumber(state.windTurbines);
+  elements.windTurbineCost.textContent = `${formatHuge(getWindTurbineCost())} Power`;
+  elements.buyWindTurbine.disabled = !state.power.gte(getWindTurbineCost());
 }
 
-function getRarity(rarityId) {
-  return RARITY_TIERS.find(rarity => rarity.id === rarityId) || RARITY_TIERS[RARITY_TIERS.length - 1];
-}
-
-function getRuneEffectDescription(rune, level) {
-  const scaled = rune.base * getRuneScale(level);
-  if (["powerMultiplier", "prismMultiplier", "windMultiplier", "rebirthMultiplier", "insightMultiplier", "allProduction"].includes(rune.effect)) {
-    return `×${formatSmallNumber(1 + scaled, 3)} ${rune.effect === "allProduction" ? "all production" : rune.effect.replace("Multiplier", "")}`;
-  }
-  if (rune.effect === "offlineEfficiency") return `+${(scaled * 100).toFixed(2)}% offline efficiency`;
-  if (rune.effect === "runeLuck") return `+${formatDecimal(scaled, 2)} Luck points`;
-  if (rune.effect === "runeSpeed") return `+${formatDecimal(scaled, 2)} Speed points`;
-  if (rune.effect === "runeBulk") return `+${formatDecimal(scaled, 2)} Bulk points`;
-  return rune.description;
+function runeEffectText(config, level) {
+  if (level <= 0) return `${config.effectLabel}: inactive`;
+  const scale = getRuneScaledStrength({ level });
+  if (["power", "rebirth", "prisms", "wind", "insight"].includes(config.effectType)) return `${config.effectLabel}: ×${(1 + config.strength * scale).toFixed(3)}`;
+  if (config.effectType === "runeLuck") return `Rune Luck: +${(config.strength * scale).toFixed(2)}`;
+  if (config.effectType === "runeSpeed") return `Rune cooldown reduction: ${(Math.min(55, config.strength * scale * 100)).toFixed(1)}%`;
+  if (config.effectType === "runeBulk") return `+1 Bulk at Lv 25 and another at Lv 75`;
+  if (config.effectType === "allCore") return `Core systems: ×${(1 + config.strength * scale).toFixed(3)}`;
+  return config.effectLabel;
 }
 
 function renderRunesPage() {
-  if (!hasPrestigeUnlock("runes")) return;
-  const ownedCount = Object.keys(state.ownedRunes).filter(id => getOwnedRune(id)).length;
-  const bulk = getRuneBulk();
-  const batchCost = getRuneBatchCost();
-  const pityThreshold = getRunePityThreshold();
-  const cooldown = getRuneCooldownSeconds();
-  const ready = state.runeCooldown <= 0;
+  const cost = getRuneRollCost();
+  elements.runeWindBalance.textContent = formatHuge(state.wind);
+  elements.runeRollCost.textContent = `${formatHuge(cost)} Wind`;
+  elements.runeCooldownDisplay.textContent = state.runeCooldown <= 0 ? "Ready" : `${state.runeCooldown.toFixed(2)}s`;
+  elements.runePityDisplay.textContent = `${state.runePity} / ${getRunePityThreshold()}`;
+  elements.runeLuckDisplay.textContent = `×${getRuneLuckMultiplier().toFixed(2)}`;
+  elements.runeBulkDisplay.textContent = String(getRuneBulk());
+  elements.rollRuneButton.disabled = state.runeCooldown > 0 || !state.wind.gte(cost);
+  elements.autoRuneToggle.checked = state.autoRuneEnabled;
+  elements.lastRuneResult.textContent = state.lastRuneResult || "No Rune rolled yet.";
 
-  elements.ownedRuneCount.textContent = formatInteger(ownedCount);
-  elements.totalRuneCount.textContent = formatInteger(Object.keys(RUNE_DEFINITIONS).length);
-  elements.runeRollCost.textContent = `${formatDecimal(batchCost)} Wind (${formatDecimal(getRuneCostPerUnit())} each)`;
-  elements.runeCooldownText.textContent = ready ? "Ready" : `${state.runeCooldown.toFixed(2)}s remaining`;
-  elements.runeBulkLabel.textContent = formatInteger(bulk);
-  elements.rollRuneButton.disabled = !ready || state.wind + 1e-9 < batchCost;
-  elements.runePityFill.style.width = `${clamp((state.runePity / pityThreshold) * 100, 0, 100)}%`;
-  elements.runePityText.textContent = `Rare pity: ${formatInteger(state.runePity)} / ${formatInteger(pityThreshold)}`;
-  elements.runeLuckText.textContent = `×${getRuneLuckMultiplier().toFixed(2)} odds`;
-  elements.runeSpeedText.textContent = `${cooldown.toFixed(2)}s cooldown`;
-  elements.runeBulkText.textContent = `${bulk} per roll (cap 5)`;
+  elements.runeGrid.innerHTML = Object.values(RUNES).map(config => {
+    const data = getRuneData(config.id);
+    const required = data.level >= 100 ? 0 : runeExpRequired(data.level);
+    const progress = required > 0 ? clamp(data.exp / required * 100, 0, 100) : 100;
+    const rarity = RARITIES[config.rarity];
+    return `<article class="rune-card rarity-${rarity.className}${data.level <= 0 ? " locked" : ""}">
+      <div class="rune-card-head"><div class="rune-name"><span class="rune-symbol">${config.symbol}</span><strong>${config.name}</strong></div><span class="rarity-badge">${rarity.name.toUpperCase()}</span></div>
+      <p class="rune-effect">${runeEffectText(config, data.level)}</p>
+      <div class="rune-progress-row"><span>Lv ${data.level}</span><span>${data.level >= 100 ? "MAX" : `${formatLevelNumber(data.exp)} / ${formatLevelNumber(required)} EXP`}</span></div>
+      <div class="rune-progress"><div style="width:${progress}%"></div></div>
+    </article>`;
+  }).join("");
+}
 
-  const autoUnlocked = hasResearchEffect("runeAutoRoll");
-  elements.autoRuneButton.disabled = !autoUnlocked;
-  elements.autoRuneButton.textContent = autoUnlocked ? `Auto-roll: ${state.autoRuneEnabled ? "ON" : "OFF"}` : "Auto-roll locked";
-  if (state.lastRuneResults.length) {
-    elements.runeLastResult.textContent = state.lastRuneResults.map(result => `${getRarity(result.rarity).name} ${RUNE_DEFINITIONS[result.id]?.name || "Rune"} Lv.${result.level}`).join(" · ");
-  } else {
-    elements.runeLastResult.textContent = "No Rune rolled yet.";
-  }
-
-  elements.runeGrid.innerHTML = "";
-  for (const rune of Object.values(RUNE_DEFINITIONS)) {
-    const rarity = getRarity(rune.rarity);
-    const owned = getOwnedRune(rune.id);
-    const card = document.createElement("article");
-    card.className = `rune-card rarity-${rarity.id}${owned ? " owned" : " locked"}`;
-    if (!owned) {
-      card.innerHTML = `<div class="rune-card-top"><span class="rune-icon">?</span><span class="rune-rarity">${rarity.name}</span></div><h3>Unknown Rune</h3><p>${rarity.displayOdds}</p><div class="rune-exp-row"><span>Not discovered</span><strong>Lv.0</strong></div>`;
-    } else {
-      const requirement = getRuneExpRequirement(owned.level);
-      const expText = Number.isFinite(requirement) ? `${formatInteger(owned.exp)} / ${formatInteger(requirement)} EXP` : "MAX LEVEL";
-      card.innerHTML = `<div class="rune-card-top"><span class="rune-icon">${rune.icon}</span><span class="rune-rarity">${rarity.name}</span></div><h3>${rune.name}</h3><p>${getRuneEffectDescription(rune, owned.level)}</p><div class="rune-exp-row"><span>${expText}</span><strong>Lv.${formatInteger(owned.level)}</strong></div><small>${formatInteger(owned.copies)} total copies · ${rarity.displayOdds}</small>`;
-    }
-    elements.runeGrid.appendChild(card);
-  }
+function renderSettingsPage() {
+  elements.notationSelect.value = state.notation;
 }
 
 function renderAll() {
-  updateUnlockVisibility();
+  renderUnlockVisibility();
   renderHeader();
   renderPowerPage();
   renderRebirthPage();
   renderPrestigePage();
-  if (activePage === "tree") renderTree();
-  if (hasPrestigeUnlock("wind")) renderWindPage();
-  if (hasPrestigeUnlock("runes")) renderRunesPage();
-  if (activePage === "research" && hasPrestigeUnlock("research")) renderResearchTree();
+  if (activePage === "prism-tree") renderPrismTree();
+  if (activePage === "research" && hasPrestige(1)) renderResearchTree();
+  if (activePage === "wind" && hasPrestige(1)) renderWindPage();
+  if (activePage === "runes" && hasPrestige(1)) renderRunesPage();
+  if (activePage === "settings") renderSettingsPage();
 }
 
-function showToast(message) {
-  elements.toast.textContent = message;
-  elements.toast.classList.add("visible");
-  clearTimeout(toastTimeout);
-  toastTimeout = setTimeout(() => elements.toast.classList.remove("visible"), 2100);
-}
+/* ------------------------------ Offline modal ------------------------------ */
 
-/* -------------------------- Offline Progress UI -------------------------- */
-
-function showOfflineReport(report) {
-  lastOfflineReport = report;
-  elements.offlineElapsedText.textContent = formatDuration(report.elapsedSeconds);
-  elements.offlineAppliedText.textContent = formatDuration(report.appliedSeconds);
-  elements.offlineEfficiencyText.textContent = `${Math.round(report.efficiency * 100)}%`;
-  elements.offlinePowerGain.textContent = `+${formatNumber(report.powerGain)}`;
-  elements.offlinePrismGain.textContent = `+${formatInteger(report.prismGain)}`;
-  elements.offlineLimitNote.textContent = Number.isFinite(report.limitSeconds)
-    ? `${formatDuration(report.limitSeconds)} limit${report.capped ? " reached" : ""}`
-    : "No time limit";
-  elements.offlineModal.classList.remove("hidden");
-  requestAnimationFrame(() => drawOfflineChart(report));
-}
-
-function closeOfflineReport() {
-  elements.offlineModal.classList.add("hidden");
-  lastOfflineReport = null;
-}
-
-function drawOfflineChart(report) {
-  const canvas = elements.offlineChart;
-  const rect = canvas.getBoundingClientRect();
-  const cssWidth = Math.max(320, Math.floor(rect.width || 800));
-  const cssHeight = Math.max(220, Math.min(340, Math.floor(cssWidth * 0.4)));
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  canvas.width = Math.floor(cssWidth * dpr);
-  canvas.height = Math.floor(cssHeight * dpr);
-  canvas.style.height = `${cssHeight}px`;
-
+function drawOfflineGraph(report) {
+  const canvas = elements.offlineGraph;
   const context = canvas.getContext("2d");
-  context.setTransform(dpr, 0, 0, dpr, 0, 0);
-  context.clearRect(0, 0, cssWidth, cssHeight);
-  const computed = getComputedStyle(document.documentElement);
-  const grid = computed.getPropertyValue("--line-strong").trim() || "rgba(157,196,232,.28)";
-  const text = computed.getPropertyValue("--muted").trim() || "#8fa5b8";
-  const accent = computed.getPropertyValue("--warning").trim() || "#ffc65c";
-  const axis = "rgba(244,248,252,.88)";
-  context.fillStyle = "#07111a";
-  context.fillRect(0, 0, cssWidth, cssHeight);
+  const width = canvas.width;
+  const height = canvas.height;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#050b10";
+  context.fillRect(0, 0, width, height);
 
-  const margin = { left: 88, right: 24, top: 18, bottom: 54 };
-  const plotWidth = cssWidth - margin.left - margin.right;
-  const plotHeight = cssHeight - margin.top - margin.bottom;
-  context.font = "12px ui-monospace, SFMono-Regular, Menlo, monospace";
+  const left = 70, right = 24, top = 24, bottom = 50;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  context.strokeStyle = "rgba(125,170,198,0.18)";
   context.lineWidth = 1;
-  context.strokeStyle = grid;
-  context.fillStyle = text;
-
   for (let index = 0; index <= 6; index += 1) {
-    const x = margin.left + (plotWidth * index) / 6;
-    context.beginPath();
-    context.moveTo(x, margin.top);
-    context.lineTo(x, margin.top + plotHeight);
-    context.stroke();
-    context.textAlign = index === 0 ? "left" : index === 6 ? "right" : "center";
-    context.fillText(formatDuration((report.appliedSeconds * index) / 6), x, cssHeight - 22);
+    const y = top + plotHeight * index / 6;
+    context.beginPath(); context.moveTo(left, y); context.lineTo(width - right, y); context.stroke();
+  }
+  for (let index = 0; index <= 8; index += 1) {
+    const x = left + plotWidth * index / 8;
+    context.beginPath(); context.moveTo(x, top); context.lineTo(x, height - bottom); context.stroke();
   }
 
-  for (let index = 0; index <= 4; index += 1) {
-    const progress = index / 4;
-    const y = margin.top + plotHeight - plotHeight * progress;
-    context.beginPath();
-    context.moveTo(margin.left, y);
-    context.lineTo(margin.left + plotWidth, y);
-    context.stroke();
-    const value = report.powerBefore.add(report.powerGain.multiply(progress));
-    context.textAlign = "right";
-    context.fillText(formatNumber(value), margin.left - 10, y + 4);
-  }
-
-  context.strokeStyle = axis;
-  context.lineWidth = 2;
-  context.beginPath();
-  context.moveTo(margin.left, margin.top);
-  context.lineTo(margin.left, margin.top + plotHeight);
-  context.lineTo(margin.left + plotWidth, margin.top + plotHeight);
-  context.stroke();
-
-  context.strokeStyle = accent;
+  const startLog = Math.max(0, report.startingPower.log10());
+  const endLog = Math.max(startLog + 1e-9, report.endingPower.log10());
+  context.strokeStyle = "#54a8ff";
   context.lineWidth = 4;
-  context.lineCap = "round";
-  context.lineJoin = "round";
   context.beginPath();
-  for (let index = 0; index <= 48; index += 1) {
-    const progress = index / 48;
-    const eased = 1 - Math.pow(1 - progress, 1.35);
-    const x = margin.left + plotWidth * progress;
-    const y = margin.top + plotHeight - plotHeight * eased;
-    if (index === 0) context.moveTo(x, y);
-    else context.lineTo(x, y);
+  for (let index = 0; index <= 40; index += 1) {
+    const ratio = index / 40;
+    const sampleGain = report.gains.power.mul(ratio);
+    const sample = report.startingPower.add(sampleGain);
+    const sampleLog = Math.max(0, sample.log10());
+    const normalized = (sampleLog - startLog) / Math.max(1e-9, endLog - startLog);
+    const x = left + plotWidth * ratio;
+    const y = top + plotHeight * (1 - normalized);
+    if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
   }
   context.stroke();
+
+  context.fillStyle = "#91a8ba";
+  context.font = "12px ui-monospace, monospace";
+  context.fillText(formatHuge(report.startingPower), 8, height - bottom + 4);
+  context.fillText(formatHuge(report.endingPower), 8, top + 4);
+  context.fillText("Time", width / 2 - 12, height - 15);
 }
 
-/* ------------------------------- Save Data ------------------------------- */
-
-function sanitizeFiniteNonNegativeNumber(value, fallback = 0) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
+function renderOfflineModal(report) {
+  elements.offlineDurationText.textContent = `You were away for ${formatDuration(report.rawSeconds)}. ${formatDuration(report.appliedSeconds)} was applied.`;
+  elements.offlinePowerGain.textContent = formatHuge(report.gains.power);
+  elements.offlinePrismGain.textContent = formatHuge(report.gains.prisms);
+  elements.offlineEfficiency.textContent = formatPercent(report.efficiency);
+  elements.offlineAppliedTime.textContent = formatDuration(report.appliedSeconds);
+  elements.offlineModal.classList.remove("hidden");
+  requestAnimationFrame(() => drawOfflineGraph(report));
 }
 
-function rebuildPrerequisiteLevels(definitions, requestedLevels, gateCheck = () => true) {
-  const accepted = {};
+function closeOfflineModal() {
+  elements.offlineModal.classList.add("hidden");
+  pendingOfflineReport = null;
+}
+
+/* -------------------------------- Save data -------------------------------- */
+
+function serializeState() {
+  return JSON.stringify(state, (key, value) => value instanceof HugeNumber ? value.toString() : value);
+}
+
+function encodeUtf8Base64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function decodeUtf8Base64(text) {
+  const binary = atob(text.trim());
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function sanitizeTreeLevels(candidate, prestigeLevel = 0, researchNodes = []) {
+  const requested = {};
+  if (candidate?.treeLevels && typeof candidate.treeLevels === "object") {
+    for (const [id, value] of Object.entries(candidate.treeLevels)) {
+      if (PRISM_TREE_NODES[id]) requested[id] = clamp(Math.floor(Number(value) || 0), 0, PRISM_TREE_NODES[id].maxLevel);
+    }
+  }
+  if (Array.isArray(candidate?.purchasedTreeNodes)) {
+    for (const id of candidate.purchasedTreeNodes) if (PRISM_TREE_NODES[id]) requested[id] = Math.max(requested[id] || 0, 1);
+  }
+
+  const researchSet = new Set(researchNodes);
+  const result = {};
+  const systemAllows = nodeConfig => {
+    if (!nodeConfig.unlock) return true;
+    if (nodeConfig.unlock === "prestige1") return prestigeLevel >= 1;
+    if (nodeConfig.unlock === "wind") return prestigeLevel >= 1;
+    if (nodeConfig.unlock === "researchBranch") return researchSet.has("prismExpansion");
+    return false;
+  };
+
   let changed = true;
   while (changed) {
     changed = false;
-    for (const node of Object.values(definitions)) {
-      if (!requestedLevels[node.id] || accepted[node.id] || !gateCheck(node)) continue;
-      if ((node.prerequisites || []).every(id => (accepted[id] || 0) > 0)) {
-        accepted[node.id] = Math.min(node.maxLevel || 1, Math.max(1, requestedLevels[node.id]));
+    for (const nodeConfig of Object.values(PRISM_TREE_NODES)) {
+      if (!requested[nodeConfig.id] || result[nodeConfig.id] || !systemAllows(nodeConfig)) continue;
+      if (nodeConfig.prerequisites.every(id => result[id] > 0)) {
+        result[nodeConfig.id] = requested[nodeConfig.id];
         changed = true;
       }
     }
   }
-  return accepted;
+  return result;
+}
+
+function sanitizeResearchNodes(candidate) {
+  const requested = Array.isArray(candidate?.purchasedResearchNodes) ? [...new Set(candidate.purchasedResearchNodes)].filter(id => RESEARCH_NODES[id]) : [];
+  const result = [];
+  const chosenGroups = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const id of requested) {
+      if (result.includes(id)) continue;
+      const nodeConfig = RESEARCH_NODES[id];
+      if (!nodeConfig.prerequisites.every(prerequisite => result.includes(prerequisite))) continue;
+      if (nodeConfig.exclusiveGroup && chosenGroups.has(nodeConfig.exclusiveGroup)) continue;
+      result.push(id);
+      if (nodeConfig.exclusiveGroup) chosenGroups.add(nodeConfig.exclusiveGroup);
+      changed = true;
+    }
+  }
+  return result;
+}
+
+function getSanitizedResearchSum(researchNodes, effectKey) {
+  return researchNodes.reduce((total, id) => total + Number(RESEARCH_NODES[id]?.effects?.[effectKey] || 0), 0);
 }
 
 function sanitizeLoadedState(candidate) {
-  const clean = createFreshState();
+  const clean = defaultState();
   if (!candidate || typeof candidate !== "object") return clean;
 
-  clean.power = HN(candidate.power).max(0);
-  clean.rebirthPoints = HN(candidate.rebirthPoints).max(0);
-  clean.prisms = Math.floor(sanitizeFiniteNonNegativeNumber(candidate.prisms));
-  clean.insight = sanitizeFiniteNonNegativeNumber(candidate.insight);
-  clean.wind = sanitizeFiniteNonNegativeNumber(candidate.wind);
-  clean.windStorage = sanitizeFiniteNonNegativeNumber(candidate.windStorage);
-  clean.windWasted = sanitizeFiniteNonNegativeNumber(candidate.windWasted);
-  clean.prismProgress = sanitizeFiniteNonNegativeNumber(candidate.prismProgress);
-  clean.prismYieldRemainder = sanitizeFiniteNonNegativeNumber(candidate.prismYieldRemainder);
-  clean.totalRebirths = Math.floor(sanitizeFiniteNonNegativeNumber(candidate.totalRebirths));
-  clean.totalPrestiges = Math.floor(sanitizeFiniteNonNegativeNumber(candidate.totalPrestiges));
-  clean.prestigeLevel = Math.floor(sanitizeFiniteNonNegativeNumber(candidate.prestigeLevel));
-  if (clean.prestigeLevel > clean.totalPrestiges) clean.totalPrestiges = clean.prestigeLevel;
-  clean.totalRuneRolls = Math.floor(sanitizeFiniteNonNegativeNumber(candidate.totalRuneRolls));
-  clean.totalPlayTime = sanitizeFiniteNonNegativeNumber(candidate.totalPlayTime);
-  clean.lastUpdateAt = sanitizeFiniteNonNegativeNumber(candidate.lastUpdateAt, Date.now());
-  clean.runePity = Math.floor(sanitizeFiniteNonNegativeNumber(candidate.runePity));
-  clean.runeCooldown = sanitizeFiniteNonNegativeNumber(candidate.runeCooldown);
-  clean.autoRuneEnabled = Boolean(candidate.autoRuneEnabled);
-  clean.autoPowerEnabled = Boolean(candidate.autoPowerEnabled);
+  const hugeFields = ["power", "prisms", "rebirthPoints", "insight", "wind", "windStorage", "wastedWind", "rebirthClaimedBase"];
+  for (const field of hugeFields) clean[field] = H(candidate[field] ?? clean[field]);
+
+  clean.totalPrestiges = Math.max(0, Math.floor(Number(candidate.totalPrestiges) || 0));
+  clean.prestigeLevel = clamp(Math.floor(Number(candidate.prestigeLevel ?? candidate.totalPrestiges) || 0), 0, PRESTIGE_TIERS.length);
+  clean.purchasedResearchNodes = clean.prestigeLevel >= 1 ? sanitizeResearchNodes(candidate) : [];
+  clean.treeLevels = sanitizeTreeLevels(candidate, clean.prestigeLevel, clean.purchasedResearchNodes);
+
+  const resonatorCap = 50 + (clean.prestigeLevel >= 1 ? 10 : 0) + getSanitizedResearchSum(clean.purchasedResearchNodes, "resonatorCap");
+  const amplifierCap = 35 + (clean.prestigeLevel >= 1 ? 10 : 0) + getSanitizedResearchSum(clean.purchasedResearchNodes, "amplifierCap");
+  clean.powerUpgrades.flux = clamp(Math.floor(Number(candidate.powerUpgrades?.flux ?? candidate.powerUpgradeLevel ?? 0) || 0), 0, MAX_SAFE_LEVEL);
+  clean.powerUpgrades.resonator = clamp(Math.floor(Number(candidate.powerUpgrades?.resonator ?? candidate.powerResonatorLevel ?? 0) || 0), 0, resonatorCap);
+  clean.rebirthUpgrades.amplifier = clamp(Math.floor(Number(candidate.rebirthUpgrades?.amplifier ?? candidate.rebirthUpgradeLevel ?? 0) || 0), 0, amplifierCap);
+  clean.rebirthUpgrades.core = clamp(Math.floor(Number(candidate.rebirthUpgrades?.core ?? candidate.rebirthCoreLevel ?? 0) || 0), 0, MAX_SAFE_LEVEL);
+
+  clean.windTurbines = clean.prestigeLevel >= 1 ? clamp(Math.floor(Number(candidate.windTurbines) || 0), 0, MAX_SAFE_LEVEL) : 0;
+  clean.runePity = clamp(Math.floor(Number(candidate.runePity) || 0), 0, 1e9);
+  clean.runeCooldown = Math.max(0, Number(candidate.runeCooldown) || 0);
+  clean.totalRuneRolls = Math.max(0, Math.floor(Number(candidate.totalRuneRolls) || 0));
+  clean.totalRebirths = Math.max(0, Math.floor(Number(candidate.totalRebirths) || 0));
+  clean.prismProgress = clamp(Number(candidate.prismProgress) || 0, 0, 1e9);
+  clean.totalPlayTime = Math.max(0, Number(candidate.totalPlayTime) || 0);
+  clean.lastUpdate = Number(candidate.lastUpdate ?? candidate.latest_time) || Date.now();
+  clean.notation = ["mixed", "scientific", "standard"].includes(candidate.notation) ? candidate.notation : "mixed";
+  clean.autoPowerEnabled = candidate.autoPowerEnabled !== false;
   clean.autoRebirthEnabled = Boolean(candidate.autoRebirthEnabled);
+  clean.autoRebirthUpgradesEnabled = Boolean(candidate.autoRebirthUpgradesEnabled) && clean.purchasedResearchNodes.includes("rebirthUpgradeAutomation");
+  clean.autoRuneEnabled = Boolean(candidate.autoRuneEnabled) && clean.purchasedResearchNodes.includes("runeAutomation");
+  clean.lastRuneResult = typeof candidate.lastRuneResult === "string" ? candidate.lastRuneResult.slice(0, 180) : "";
 
-  const requestedResearch = {};
-  if (candidate.researchLevels && typeof candidate.researchLevels === "object") {
-    for (const [nodeId, rawLevel] of Object.entries(candidate.researchLevels)) {
-      if (Object.hasOwn(RESEARCH_NODES, nodeId) && sanitizeFiniteNonNegativeNumber(rawLevel) >= 1) requestedResearch[nodeId] = 1;
+  if (clean.prestigeLevel >= 1 && Array.isArray(candidate.ownedRunes)) {
+    for (const entry of candidate.ownedRunes) {
+      const id = typeof entry === "string" ? entry : entry?.id;
+      if (!RUNES[id]) continue;
+      clean.ownedRunes[id] = {
+        level: clamp(Math.floor(Number(entry?.level ?? 1) || 1), 0, 100),
+        exp: Math.max(0, Math.floor(Number(entry?.exp ?? entry?.experience) || 0))
+      };
     }
-  }
-  if (Array.isArray(candidate.purchasedResearchNodes)) {
-    for (const nodeId of candidate.purchasedResearchNodes) if (Object.hasOwn(RESEARCH_NODES, nodeId)) requestedResearch[nodeId] = 1;
-  }
-  clean.researchLevels = hasPrestigeUnlock("research", clean.prestigeLevel)
-    ? rebuildPrerequisiteLevels(RESEARCH_NODES, requestedResearch)
-    : {};
-  clean.purchasedResearchNodes = Object.keys(clean.researchLevels);
-  clean.autoPowerEnabled = hasPrestigeUnlock("powerAutomation", clean.prestigeLevel) && clean.autoPowerEnabled;
-  clean.autoRebirthEnabled = hasPrestigeUnlock("autoRebirth", clean.prestigeLevel) && clean.autoRebirthEnabled;
-  clean.autoRuneEnabled = Boolean(clean.researchLevels.runeMechanics) && clean.autoRuneEnabled;
-
-  const requestedTree = {};
-  if (candidate.treeLevels && typeof candidate.treeLevels === "object") {
-    for (const [nodeId, rawLevel] of Object.entries(candidate.treeLevels)) {
-      if (!Object.hasOwn(TREE_NODES, nodeId)) continue;
-      requestedTree[nodeId] = Math.min(TREE_NODES[nodeId].maxLevel, Math.floor(sanitizeFiniteNonNegativeNumber(rawLevel)));
-    }
-  }
-  if (Array.isArray(candidate.purchasedTreeNodes)) {
-    for (const nodeId of candidate.purchasedTreeNodes) if (Object.hasOwn(TREE_NODES, nodeId)) requestedTree[nodeId] = Math.max(1, requestedTree[nodeId] || 0);
-  }
-  const originalState = state;
-  state = clean;
-  clean.treeLevels = rebuildPrerequisiteLevels(TREE_NODES, requestedTree, node => treeNodeGatesMet(node));
-  clean.purchasedTreeNodes = Object.keys(clean.treeLevels);
-  state = originalState;
-
-  for (const field of Object.keys(UPGRADE_DEFINITIONS)) clean[field] = Math.floor(sanitizeFiniteNonNegativeNumber(candidate[field]));
-  const stateBeforeClamp = state;
-  state = clean;
-  for (const field of Object.keys(UPGRADE_DEFINITIONS)) {
-    const cap = getUpgradeCap(field);
-    if (Number.isFinite(cap)) clean[field] = Math.min(clean[field], cap);
-    clean[field] = Math.min(clean[field], Number.MAX_SAFE_INTEGER);
-  }
-  clean.windStorage = Math.min(clean.windStorage, getWindStorageCap());
-  state = stateBeforeClamp;
-
-  if (candidate.ownedRunes && typeof candidate.ownedRunes === "object") {
-    for (const [runeId, rawOwned] of Object.entries(candidate.ownedRunes)) {
-      if (!Object.hasOwn(RUNE_DEFINITIONS, runeId) || !rawOwned || typeof rawOwned !== "object") continue;
-      let level = clamp(Math.floor(sanitizeFiniteNonNegativeNumber(rawOwned.level)), 0, MAX_RUNE_LEVEL);
-      if (level <= 0) continue;
-      let exp = Math.floor(sanitizeFiniteNonNegativeNumber(rawOwned.exp));
-      const copies = Math.max(1, Math.floor(sanitizeFiniteNonNegativeNumber(rawOwned.copies, 1)));
-      while (level < MAX_RUNE_LEVEL && exp >= getRuneExpRequirement(level)) {
-        exp -= getRuneExpRequirement(level);
-        level += 1;
-      }
-      if (level >= MAX_RUNE_LEVEL) exp = 0;
-      clean.ownedRunes[runeId] = { level, exp, copies };
+  } else if (clean.prestigeLevel >= 1 && candidate.ownedRunes && typeof candidate.ownedRunes === "object") {
+    for (const [id, entry] of Object.entries(candidate.ownedRunes)) {
+      if (!RUNES[id]) continue;
+      if (typeof entry === "number") clean.ownedRunes[id] = { level: clamp(Math.floor(entry), 0, 100), exp: 0 };
+      else clean.ownedRunes[id] = { level: clamp(Math.floor(Number(entry?.level) || 0), 0, 100), exp: Math.max(0, Math.floor(Number(entry?.exp ?? entry?.experience) || 0)) };
     }
   }
 
-  clean.lastRuneResults = Array.isArray(candidate.lastRuneResults)
-    ? candidate.lastRuneResults.filter(result => result && Object.hasOwn(RUNE_DEFINITIONS, result.id)).slice(-6).map(result => ({
-      id: result.id,
-      rarity: RUNE_DEFINITIONS[result.id].rarity,
-      newRune: Boolean(result.newRune),
-      level: clamp(Math.floor(sanitizeFiniteNonNegativeNumber(result.level, 1)), 1, MAX_RUNE_LEVEL)
-    }))
-    : [];
-
-  clean.unlockedCosmetics = Array.isArray(candidate.unlockedCosmetics)
-    ? [...new Set(candidate.unlockedCosmetics.filter(value => ["default", "first-shift"].includes(value)))]
-    : ["default"];
-  if (!clean.unlockedCosmetics.includes("default")) clean.unlockedCosmetics.unshift("default");
-  for (const config of getClaimedPrestigeTiers(clean.prestigeLevel)) {
-    for (const cosmetic of config.effects?.cosmetics || []) {
-      if (!clean.unlockedCosmetics.includes(cosmetic)) clean.unlockedCosmetics.push(cosmetic);
-    }
-  }
-  clean.selectedCosmetic = clean.unlockedCosmetics.includes(candidate.selectedCosmetic) ? candidate.selectedCosmetic : "default";
   clean.version = GAME_VERSION;
   return clean;
 }
 
 function saveGame(showFeedback = true) {
   try {
-    state.lastUpdateAt = Date.now();
-    state.purchasedTreeNodes = Object.keys(state.treeLevels).filter(id => getTreeLevel(id) > 0);
-    state.purchasedResearchNodes = Object.keys(state.researchLevels).filter(id => getResearchLevel(id) > 0);
-    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+    state.lastUpdate = Date.now();
+    localStorage.setItem(SAVE_KEY, serializeState());
     elements.saveStatus.textContent = "Saved";
     if (showFeedback) showToast("Game saved");
-    setTimeout(() => { if (elements.saveStatus.textContent === "Saved") elements.saveStatus.textContent = "Ready"; }, 1400);
+    setTimeout(() => { if (elements.saveStatus.textContent === "Saved") elements.saveStatus.textContent = "Ready"; }, 1100);
   } catch (error) {
-    console.error("Failed to save Eonshift:", error);
+    console.error("Save failed", error);
     elements.saveStatus.textContent = "Error";
     if (showFeedback) showToast("Save failed");
   }
@@ -2238,388 +1764,184 @@ function saveGame(showFeedback = true) {
 
 function loadGame() {
   try {
-    const rawSave = localStorage.getItem(SAVE_KEY);
-    if (!rawSave) return false;
-    state = sanitizeLoadedState(JSON.parse(rawSave));
-    return true;
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return { offlineSeconds: 0 };
+    const loaded = sanitizeLoadedState(JSON.parse(raw));
+    const offlineSeconds = Math.max(0, (Date.now() - loaded.lastUpdate) / 1000);
+    state = loaded;
+    return { offlineSeconds };
   } catch (error) {
-    console.error("Failed to load Eonshift:", error);
-    state = createFreshState();
-    return false;
+    console.error("Load failed", error);
+    state = defaultState();
+    return { offlineSeconds: 0 };
   }
 }
 
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  return btoa(binary);
-}
-
-function base64ToBytes(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
-function encodeSave() {
-  return bytesToBase64(new TextEncoder().encode(JSON.stringify(state)));
-}
-
-function decodeSave(encoded) {
-  const json = new TextDecoder().decode(base64ToBytes(encoded.trim()));
-  return sanitizeLoadedState(JSON.parse(json));
-}
-
-function showSaveTextarea(mode) {
-  elements.saveTextarea.classList.remove("hidden");
-  elements.saveTextareaActions.classList.remove("hidden");
-  elements.saveTextarea.dataset.mode = mode;
-  if (mode === "export") {
-    processRealTime();
-    elements.saveTextarea.value = encodeSave();
-    elements.saveTextarea.readOnly = true;
-    elements.confirmImportButton.classList.add("hidden");
-    elements.saveTextarea.select();
-  } else {
-    elements.saveTextarea.value = "";
-    elements.saveTextarea.readOnly = false;
-    elements.confirmImportButton.classList.remove("hidden");
+function exportSave() {
+  try {
+    elements.saveTextarea.value = encodeUtf8Base64(serializeState());
     elements.saveTextarea.focus();
+    elements.saveTextarea.select();
+    showToast("Save exported to the text box");
+  } catch (error) {
+    console.error(error);
+    showToast("Export failed");
   }
-}
-
-function hideSaveTextarea() {
-  elements.saveTextarea.classList.add("hidden");
-  elements.saveTextareaActions.classList.add("hidden");
-  elements.saveTextarea.value = "";
-  elements.saveTextarea.dataset.mode = "";
 }
 
 function importSave() {
+  const text = elements.saveTextarea.value.trim();
+  if (!text) return showToast("Paste a save first");
   try {
-    state = decodeSave(elements.saveTextarea.value);
-    selectedTreeNodeId = null;
-    selectedResearchNodeId = null;
-    lastTickAt = Date.now();
+    const decoded = JSON.parse(decodeUtf8Base64(text));
+    state = sanitizeLoadedState(decoded);
+    state.lastUpdate = Date.now();
     saveGame(false);
-    hideSaveTextarea();
-    closeSettings();
-    renderAll();
+    selectedPrismNodeId = null;
+    selectedResearchNodeId = null;
     showToast("Save imported");
+    renderAll();
   } catch (error) {
-    console.error("Failed to import save:", error);
+    console.error(error);
     showToast("Invalid save data");
   }
 }
 
 function resetGame() {
-  if (!window.confirm("Reset all Eonshift progress? This cannot be undone unless you exported a backup.")) return;
-  state = createFreshState();
-  selectedTreeNodeId = null;
-  selectedResearchNodeId = null;
+  if (!confirm("Reset every Eonshift save value? This cannot be undone unless you exported a backup.")) return;
+  state = defaultState();
   localStorage.removeItem(SAVE_KEY);
-  lastTickAt = Date.now();
-  saveGame(false);
-  closeSettings();
-  renderAll();
+  selectedPrismNodeId = null;
+  selectedResearchNodeId = null;
+  setActivePage("power");
   showToast("Progress reset");
-}
-
-/* ------------------------------- Settings -------------------------------- */
-
-function openSettings() {
-  elements.settingsModal.classList.remove("hidden");
-  elements.closeSettingsButton.focus();
-}
-
-function closeSettings() {
-  elements.settingsModal.classList.add("hidden");
-  hideSaveTextarea();
-  elements.settingsButton.focus();
-}
-
-/* ---------------------------- Developer tools ---------------------------- */
-
-function isDeveloperUnlocked() {
-  return sessionStorage.getItem(DEV_SESSION_KEY) === "unlocked";
-}
-
-function updateDeveloperAccessUI() {
-  const unlocked = isDeveloperUnlocked();
-  elements.developerStatus.textContent = unlocked ? "Unlocked" : "Locked";
-  elements.developerLogin.classList.toggle("hidden", unlocked);
-  elements.developerTools.classList.toggle("hidden", !unlocked);
-}
-
-function unlockDeveloperAccess() {
-  if (elements.developerPasscode.value !== DEV_PASSCODE) {
-    showToast("Incorrect developer passcode");
-    return;
-  }
-  sessionStorage.setItem(DEV_SESSION_KEY, "unlocked");
-  elements.developerPasscode.value = "";
-  updateDeveloperAccessUI();
-  showToast("Developer access unlocked");
-}
-
-function getDeveloperNumberInput(element, integerOnly = false) {
-  const value = Number(element.value);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return integerOnly ? Math.floor(value) : value;
-}
-
-function developerChangeResource(mode) {
-  if (!isDeveloperUnlocked()) return;
-  const field = elements.developerResourceSelect.value;
-  const raw = elements.developerResourceAmount.value.trim();
-  if (!Object.hasOwn(state, field)) return;
-
-  if (["power", "rebirthPoints"].includes(field)) {
-    const amount = HN(raw);
-    if (amount.sign < 0 || (!raw || amount.isZero() && !/^0(?:\.0+)?$/i.test(raw))) {
-      showToast("Use a value such as 1000 or 1e100K");
-      return;
-    }
-    state[field] = mode === "add" ? HN(state[field]).add(amount) : amount;
-  } else {
-    const amount = Number(raw);
-    if (!Number.isFinite(amount) || amount < 0) {
-      showToast("Enter a finite non-negative amount");
-      return;
-    }
-    state[field] = mode === "add" ? state[field] + amount : amount;
-    if (field === "prisms") state[field] = Math.floor(state[field]);
-    if (field === "windStorage") state.windStorage = Math.min(state.windStorage, getWindStorageCap());
-  }
-  saveGame(false);
   renderAll();
-  showToast(`${field} ${mode === "add" ? "increased" : "set"}`);
 }
 
-function developerChangeUpgrade(mode) {
-  if (!isDeveloperUnlocked()) return;
-  const field = elements.developerUpgradeSelect.value;
-  const amount = getDeveloperNumberInput(elements.developerUpgradeAmount, true);
-  if (amount === null || !Object.hasOwn(state, field) || !Object.hasOwn(UPGRADE_DEFINITIONS, field)) {
-    showToast("Enter a valid upgrade level");
-    return;
-  }
-  const proposed = mode === "add" ? state[field] + amount : amount;
-  const cap = getUpgradeCap(field);
-  state[field] = Math.min(Math.floor(proposed), Number.isFinite(cap) ? cap : Number.MAX_SAFE_INTEGER);
-  saveGame(false);
-  renderAll();
-  showToast(`Upgrade level ${mode === "add" ? "increased" : "set"}`);
+/* -------------------------------- Developer -------------------------------- */
+
+function unlockDeveloper() {
+  if (elements.developerPasscode.value !== "1234") return showToast("Incorrect passcode");
+  sessionStorage.setItem("eonshift-dev", "1");
+  elements.developerLocked.classList.add("hidden");
+  elements.developerTools.classList.remove("hidden");
+  showToast("Developer tools unlocked");
 }
 
-function developerUnlockTree() {
-  if (!isDeveloperUnlocked()) return;
-  const requested = { ...state.treeLevels };
-  for (const node of Object.values(TREE_NODES)) {
-    if (treeNodeGatesMet(node)) requested[node.id] = node.maxLevel;
-  }
-  state.treeLevels = rebuildPrerequisiteLevels(TREE_NODES, requested, node => treeNodeGatesMet(node));
-  state.purchasedTreeNodes = Object.keys(state.treeLevels);
-  resolvePrismGeneration(false);
-  saveGame(false);
+function applyDeveloperValue() {
+  const target = elements.developerTarget.value;
+  const value = H(elements.developerValue.value);
+  if (elements.developerOperation.value === "set") setCurrency(target, value);
+  else addCurrency(target, value);
+  showToast(`${currencyName(target)} updated`);
   renderAll();
-  showToast("Available Prism Tree nodes maxed");
-}
-
-function developerResetTree() {
-  if (!isDeveloperUnlocked()) return;
-  state.treeLevels = {};
-  state.purchasedTreeNodes = [];
-  selectedTreeNodeId = null;
-  saveGame(false);
-  renderAll();
-  showToast("Prism Tree reset");
 }
 
 function developerGrantPrestige() {
-  if (!isDeveloperUnlocked()) return;
   state.prestigeLevel = Math.max(1, state.prestigeLevel);
   state.totalPrestiges = Math.max(1, state.totalPrestiges);
-  for (const config of getClaimedPrestigeTiers()) {
-    const effects = config.effects || {};
-    if (effects.enableAutoPowerByDefault) state.autoPowerEnabled = true;
-    for (const cosmetic of effects.cosmetics || []) {
-      if (!state.unlockedCosmetics.includes(cosmetic)) state.unlockedCosmetics.push(cosmetic);
+  state.autoPowerEnabled = true;
+  showToast("Prestige 1 granted");
+  renderAll();
+}
+
+function developerUnlockVisibleNodes() {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const nodeConfig of Object.values(PRISM_TREE_NODES)) {
+      if (!isPrismNodeUnlockedBySystem(nodeConfig)) continue;
+      if (treeLevel(nodeConfig.id) > 0) continue;
+      if (nodeConfig.prerequisites.every(id => treeLevel(id) > 0)) {
+        state.treeLevels[nodeConfig.id] = 1;
+        changed = true;
+      }
     }
   }
-  saveGame(false);
-  renderAll();
-  showToast("Prestige Tier 1 granted");
-}
-
-function developerUnlockResearch() {
-  if (!isDeveloperUnlocked()) return;
-  developerGrantPrestige();
-  state.researchLevels = {};
-  for (const node of Object.values(RESEARCH_NODES)) state.researchLevels[node.id] = 1;
-  state.researchLevels = rebuildPrerequisiteLevels(RESEARCH_NODES, state.researchLevels);
-  state.purchasedResearchNodes = Object.keys(state.researchLevels);
-  saveGame(false);
-  renderAll();
-  showToast("All Research purchased");
-}
-
-function developerGrantRunes() {
-  if (!isDeveloperUnlocked()) return;
-  developerGrantPrestige();
-  for (const rune of Object.values(RUNE_DEFINITIONS)) {
-    if (!state.ownedRunes[rune.id]) state.ownedRunes[rune.id] = { level: 1, exp: 0, copies: 1 };
+  if (hasPrestige(1)) {
+    let researchChanged = true;
+    while (researchChanged) {
+      researchChanged = false;
+      for (const nodeConfig of Object.values(RESEARCH_NODES)) {
+        if (state.purchasedResearchNodes.includes(nodeConfig.id)) continue;
+        if (!nodeConfig.prerequisites.every(id => state.purchasedResearchNodes.includes(id))) continue;
+        if (nodeConfig.exclusiveGroup && state.purchasedResearchNodes.some(id => RESEARCH_NODES[id]?.exclusiveGroup === nodeConfig.exclusiveGroup)) continue;
+        state.purchasedResearchNodes.push(nodeConfig.id);
+        researchChanged = true;
+      }
+    }
   }
-  saveGame(false);
+  showToast("Visible node chains unlocked");
   renderAll();
-  showToast("All Runes granted at level 1");
 }
 
-function developerSimulateOffline() {
-  if (!isDeveloperUnlocked()) return;
-  const hours = getDeveloperNumberInput(elements.developerOfflineHours, false);
-  if (hours === null || hours <= 0) {
-    showToast("Enter a valid number of hours");
-    return;
-  }
-  const report = applyOfflineProgress(hours * 3_600);
-  saveGame(false);
+function developerGiveRunes() {
+  for (const id of Object.keys(RUNES)) state.ownedRunes[id] = { level: 10, exp: 0 };
+  showToast("All Runes set to Level 10");
   renderAll();
-  closeSettings();
-  showOfflineReport(report);
 }
 
-/* ------------------------------- Game Loop -------------------------------- */
-
-function gameTick() {
-  processRealTime();
-  if (!document.hidden) {
-    renderHeader();
-    if (activePage === "power") renderPowerPage();
-    else if (activePage === "rebirth") renderRebirthPage();
-    else if (activePage === "tree") {
-      elements.treePrismBalance.textContent = formatInteger(state.prisms);
-      renderSelectedTreeNode();
-    } else if (activePage === "prestige") renderPrestigePage();
-    else if (activePage === "research") {
-      elements.researchInsightBalance.textContent = formatDecimal(state.insight);
-      renderSelectedResearchNode();
-    } else if (activePage === "wind") renderWindPage();
-    else if (activePage === "runes") renderRunesPage();
-  }
-  if (autosaveAccumulator >= AUTOSAVE_INTERVAL_MS) {
-    autosaveAccumulator = 0;
-    saveGame(false);
-  }
-}
-
-/* ------------------------------ Event Setup ------------------------------ */
+/* --------------------------------- Events ---------------------------------- */
 
 function bindEvents() {
   document.querySelectorAll(".nav-button").forEach(button => button.addEventListener("click", () => setActivePage(button.dataset.page)));
-  elements.buyPowerUpgrade.addEventListener("click", () => buyPowerUpgrade(1));
-  elements.buyMaxPowerUpgrade.addEventListener("click", () => buyPowerUpgrade(Infinity));
-  elements.buyPowerResonator.addEventListener("click", () => buyPowerResonator(1));
-  elements.buyMaxPowerResonator.addEventListener("click", () => buyPowerResonator(Infinity));
-  elements.autoPowerToggle.addEventListener("change", () => { state.autoPowerEnabled = elements.autoPowerToggle.checked; });
-  elements.rebirthButton.addEventListener("click", () => performRebirth());
-  elements.buyRebirthUpgrade.addEventListener("click", () => buyRebirthUpgrade(1));
-  elements.buyMaxRebirthUpgrade.addEventListener("click", () => buyRebirthUpgrade(Infinity));
-  elements.buyRebirthCore.addEventListener("click", () => buyRebirthCore(1));
-  elements.buyMaxRebirthCore.addEventListener("click", () => buyRebirthCore(Infinity));
-  elements.autoRebirthToggle.addEventListener("change", () => { state.autoRebirthEnabled = elements.autoRebirthToggle.checked; });
-  elements.purchaseTreeNode.addEventListener("click", purchaseSelectedTreeNode);
+  elements.mobileMenuButton.addEventListener("click", () => elements.sidebar.classList.toggle("open"));
+
+  elements.rebirthButton.addEventListener("click", () => { performRebirth(); saveGame(false); renderAll(); });
   elements.prestigeButton.addEventListener("click", performPrestige);
-  elements.purchaseResearchNode.addEventListener("click", purchaseSelectedResearchNode);
-  elements.collectWindButton.addEventListener("click", collectWind);
-  elements.buyWindTurbine.addEventListener("click", () => buyWindTurbine(1));
-  elements.buyMaxWindTurbine.addEventListener("click", () => buyWindTurbine(Infinity));
-  elements.rollRuneButton.addEventListener("click", () => rollRuneBatch());
-  elements.autoRuneButton.addEventListener("click", toggleAutoRune);
+  elements.purchasePrismNode.addEventListener("click", () => purchasePrismNode(selectedPrismNodeId));
+  elements.purchaseResearchNode.addEventListener("click", () => purchaseResearchNode(selectedResearchNodeId));
+  elements.buyWindTurbine.addEventListener("click", buyWindTurbine);
+  elements.collectWindButton.addEventListener("click", () => { collectWind(); renderAll(); });
+  elements.rollRuneButton.addEventListener("click", () => { attemptRuneRoll(); renderAll(); });
 
-  elements.settingsButton.addEventListener("click", openSettings);
-  elements.closeSettingsButton.addEventListener("click", closeSettings);
-  elements.settingsModal.addEventListener("click", event => { if (event.target === elements.settingsModal) closeSettings(); });
-  elements.saveNowButton.addEventListener("click", () => { processRealTime(); saveGame(true); });
-  elements.exportSaveButton.addEventListener("click", () => showSaveTextarea("export"));
-  elements.importSaveButton.addEventListener("click", () => showSaveTextarea("import"));
-  elements.confirmImportButton.addEventListener("click", importSave);
-  elements.cancelSaveTextButton.addEventListener("click", hideSaveTextarea);
+  elements.autoPowerToggle.addEventListener("change", () => { state.autoPowerEnabled = elements.autoPowerToggle.checked; });
+  elements.autoRebirthToggle.addEventListener("change", () => { state.autoRebirthEnabled = elements.autoRebirthToggle.checked; });
+  elements.autoRebirthUpgradeToggle.addEventListener("change", () => { state.autoRebirthUpgradesEnabled = elements.autoRebirthUpgradeToggle.checked; });
+  elements.autoRuneToggle.addEventListener("change", () => { state.autoRuneEnabled = elements.autoRuneToggle.checked; });
+
+  elements.saveNowButton.addEventListener("click", () => saveGame(true));
+  elements.exportSaveButton.addEventListener("click", exportSave);
+  elements.importSaveButton.addEventListener("click", importSave);
   elements.resetSaveButton.addEventListener("click", resetGame);
+  elements.notationSelect.addEventListener("change", () => { state.notation = elements.notationSelect.value; renderAll(); });
 
-  elements.unlockDeveloperButton.addEventListener("click", unlockDeveloperAccess);
-  elements.developerPasscode.addEventListener("keydown", event => { if (event.key === "Enter") unlockDeveloperAccess(); });
-  elements.developerAddResource.addEventListener("click", () => developerChangeResource("add"));
-  elements.developerSetResource.addEventListener("click", () => developerChangeResource("set"));
-  elements.developerAddUpgrade.addEventListener("click", () => developerChangeUpgrade("add"));
-  elements.developerSetUpgrade.addEventListener("click", () => developerChangeUpgrade("set"));
-  elements.developerUnlockTree.addEventListener("click", developerUnlockTree);
-  elements.developerResetTree.addEventListener("click", developerResetTree);
-  elements.developerUnlockPrestige.addEventListener("click", developerGrantPrestige);
-  elements.developerUnlockResearch.addEventListener("click", developerUnlockResearch);
-  elements.developerGrantRunes.addEventListener("click", developerGrantRunes);
-  elements.developerSimulateOffline.addEventListener("click", developerSimulateOffline);
+  elements.unlockDeveloperButton.addEventListener("click", unlockDeveloper);
+  elements.developerPasscode.addEventListener("keydown", event => { if (event.key === "Enter") unlockDeveloper(); });
+  elements.applyDeveloperValue.addEventListener("click", applyDeveloperValue);
+  elements.developerPrestige.addEventListener("click", developerGrantPrestige);
+  elements.developerUnlockTrees.addEventListener("click", developerUnlockVisibleNodes);
+  elements.developerGiveRunes.addEventListener("click", developerGiveRunes);
+  elements.developerOffline.addEventListener("click", () => { const report = applyOfflineProgress(6 * 3600, true); pendingOfflineReport = report; renderAll(); });
 
-  elements.closeOfflineButton.addEventListener("click", closeOfflineReport);
-  elements.offlineContinueButton.addEventListener("click", closeOfflineReport);
-  elements.offlineModal.addEventListener("click", event => { if (event.target === elements.offlineModal) closeOfflineReport(); });
+  elements.closeOfflineButton.addEventListener("click", closeOfflineModal);
+  elements.acceptOfflineButton.addEventListener("click", closeOfflineModal);
 
-  document.addEventListener("keydown", event => {
-    if (event.key !== "Escape") return;
-    if (!elements.offlineModal.classList.contains("hidden")) closeOfflineReport();
-    else if (!elements.settingsModal.classList.contains("hidden")) closeSettings();
-  });
-
+  window.addEventListener("beforeunload", () => saveGame(false));
   document.addEventListener("visibilitychange", () => {
-    processRealTime(visibilityWasHidden);
-    visibilityWasHidden = document.hidden;
-    if (document.hidden) {
-      hiddenOfflineConsumedSeconds = 0;
-      saveGame(false);
-    } else {
-      hiddenOfflineConsumedSeconds = 0;
-      renderAll();
-    }
+    // Intentionally do nothing. Timers continue at full rate while the tab is merely
+    // hidden. If the browser suspends the page, gameLoop sees the elapsed gap and
+    // applies the offline efficiency/cap silently without opening the offline modal.
   });
-
-  window.addEventListener("resize", () => {
-    if (lastOfflineReport && !elements.offlineModal.classList.contains("hidden")) drawOfflineChart(lastOfflineReport);
-  });
-  window.addEventListener("pagehide", () => { processRealTime(visibilityWasHidden); saveGame(false); });
-  window.addEventListener("beforeunload", () => { processRealTime(visibilityWasHidden); saveGame(false); });
 }
 
-function init() {
-  cacheElements();
-  const sameTabSession = sessionStorage.getItem(SESSION_KEY) === "active";
-  sessionStorage.setItem(SESSION_KEY, "active");
-  const loaded = loadGame();
-  const now = Date.now();
-  const elapsedSinceSave = loaded ? Math.max(0, (now - state.lastUpdateAt) / 1_000) : 0;
-  lastTickAt = now;
-  visibilityWasHidden = document.hidden;
-  hiddenOfflineConsumedSeconds = 0;
-  bindEvents();
-  updateDeveloperAccessUI();
-  updateUnlockVisibility();
+/* ---------------------------------- Init ----------------------------------- */
 
-  if (elapsedSinceSave > 1) {
-    if (sameTabSession) {
-      if (elapsedSinceSave > BACKGROUND_SUSPEND_THRESHOLD_SECONDS) applyOfflineProgress(elapsedSinceSave);
-      else applyProgress(elapsedSinceSave, 1);
-    } else {
-      const report = applyOfflineProgress(elapsedSinceSave);
-      if (report.appliedSeconds >= 2) showOfflineReport(report);
-    }
+function initialize() {
+  cacheElements();
+  const { offlineSeconds } = loadGame();
+  bindEvents();
+
+  if (sessionStorage.getItem("eonshift-dev") === "1") {
+    elements.developerLocked.classList.add("hidden");
+    elements.developerTools.classList.remove("hidden");
   }
 
-  state.lastUpdateAt = now;
+  lastLoopTimestamp = Date.now();
+  if (offlineSeconds >= 5) applyOfflineProgress(offlineSeconds, true);
+  state.lastUpdate = Date.now();
   renderAll();
-  renderTree();
-  saveGame(false);
-  tickTimer = window.setInterval(gameTick, GAME_TICK_MS);
+  setInterval(gameLoop, 100);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", initialize);
