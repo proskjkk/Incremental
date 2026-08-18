@@ -11,5 +11,6 @@ The game is not yet playable. The game is still being re-writen
 Current development stage: Rewriting code (full changes)
 
 **License**
+
 Copyright © 2026. All rights reserved.
 The source code and project assets may not be copied, redistributed, modified, or used in another project without permission.
