@@ -1,14 +1,14 @@
-# Incremental (Rewriting)
+# Incremental
 Incremental is a browser-based incremental game which is currently in early development.
 
 **Project Status**
 
-Current status: Re-planning and Re-writing the game
-The game is not yet playable. The game is still being re-writen
+Current status: planning and the game
+The game is not yet playable. The game is still being planned
 
 **Version**
 
-Current development stage: Rewriting code (full changes)
+Current development stage: planning
 
 **License**
 
